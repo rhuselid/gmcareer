@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Depth Chart — {{ team.name }} — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container manage-team-container">
+    <h1>Edit Depth Chart — {{ team.name }}</h1>
+    <p class="teams-intro">Reorder players within each position. Use Up/Down to change depth order. You can move a player to any position (e.g. defense to offense) with &quot;Add player to [position]&quot;.</p>
+    <p class="nav-links">
+      <a href="{{ url_for('manage_team') }}" class="next-link">Back to team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    <form action="{{ url_for('depth_chart_generate') }}" method="post" class="depth-chart-actions">
+      <button type="submit" class="team-select-btn depth-generate-btn">Re-generate depth chart</button>
+      <span class="depth-generate-hint">Uses current positions: puts the highest-rated player at each position as the starter.</span>
+    </form>
+
+    <div id="depth-chart-form">
+      {% for unit_key, unit_title, pos_list in position_groups_list %}
+      <section class="manage-unit depth-edit-unit">
+        <h2 class="unit-title">{{ unit_title }}</h2>
+        {% for pos in pos_list %}
+        {% set players = position_players.get(pos, []) %}
+        {% set player_ids_here = players | map(attribute='id') | list %}
+        <div class="depth-edit-group" data-position="{{ pos }}">
+          <h3 class="depth-pos">{{ pos }}</h3>
+          <ol class="depth-edit-list">
+            {% for p in players %}
+            <li class="depth-edit-row" data-player-id="{{ p.id }}">
+              <span class="depth-rank-num">{{ loop.index }}</span>
+              <span class="player-ovr">OVR {{ p.overall }}</span>
+              <span class="player-detail">Age {{ p.age }} · Spd {{ p.speed }}</span>
+              <button type="button" class="depth-btn depth-btn-up" aria-label="Move up">↑</button>
+              <button type="button" class="depth-btn depth-btn-down" aria-label="Move down">↓</button>
+            </li>
+            {% endfor %}
+          </ol>
+          <form action="{{ url_for('depth_chart_add_player') }}" method="post" class="depth-add-player-form">
+            <input type="hidden" name="position" value="{{ pos }}">
+            <label for="add-player-{{ pos }}" class="depth-add-label">Add player:</label>
+            <select name="player_id" id="add-player-{{ pos }}" class="depth-add-select">
+              <option value="">— Select player —</option>
+              {% for p in all_players %}
+              {% if p.id not in player_ids_here %}
+              <option value="{{ p.id }}">{{ p.name or ('Player #' ~ p.id) }} ({{ p.position }} OVR {{ p.overall }})</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+            <button type="submit" class="depth-add-btn">Add</button>
+          </form>
+        </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </div>
+  </main>
+  <script>
+    (function () {
+      var apiUrl = '{{ url_for("api_depth_chart_save") }}';
+
+      function collectOrders() {
+        var orders = {};
+        document.querySelectorAll('.depth-edit-group').forEach(function (group) {
+          var pos = group.getAttribute('data-position');
+          if (!pos) return;
+          var ids = [];
+          group.querySelectorAll('.depth-edit-list .depth-edit-row').forEach(function (row) {
+            var id = row.getAttribute('data-player-id');
+            if (id) ids.push(parseInt(id, 10));
+          });
+          orders[pos] = ids;
+        });
+        return orders;
+      }
+
+      function saveDepthChart() {
+        var orders = collectOrders();
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ orders: orders }),
+          credentials: 'same-origin'
+        }).catch(function () {});
+      }
+
+      document.querySelectorAll('.depth-edit-list').forEach(function (list) {
+        function renumber() {
+          list.querySelectorAll('.depth-edit-row').forEach(function (r, idx) {
+            var num = r.querySelector('.depth-rank-num');
+            if (num) num.textContent = idx + 1;
+          });
+        }
+        list.querySelectorAll('.depth-edit-row').forEach(function (row) {
+          var up = row.querySelector('.depth-btn-up');
+          var down = row.querySelector('.depth-btn-down');
+          if (up) {
+            up.addEventListener('click', function () {
+              var rows = list.querySelectorAll('.depth-edit-row');
+              var i = Array.prototype.indexOf.call(rows, row);
+              if (i > 0) {
+                list.insertBefore(row, rows[i - 1]);
+                renumber();
+                saveDepthChart();
+              }
+            });
+          }
+          if (down) {
+            down.addEventListener('click', function () {
+              var rows = list.querySelectorAll('.depth-edit-row');
+              var i = Array.prototype.indexOf.call(rows, row);
+              if (i < rows.length - 1) {
+                list.insertBefore(rows[i + 1], row);
+                renumber();
+                saveDepthChart();
+              }
+            });
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

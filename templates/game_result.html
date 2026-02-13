@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Result — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container">
+    <p class="nav-links">
+      <a href="{{ url_for('manage_team') }}" class="next-link">&larr; Back to team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    <div class="boxscore-header">
+      <div class="boxscore-team">
+        <span class="boxscore-name">{{ home_team.get('name', 'Home') }}</span>
+        <span class="boxscore-score">{{ game.home_score }}</span>
+      </div>
+      <span class="boxscore-vs">—</span>
+      <div class="boxscore-team">
+        <span class="boxscore-score">{{ game.away_score }}</span>
+        <span class="boxscore-name">{{ away_team.get('name', 'Away') }}</span>
+      </div>
+    </div>
+
+    <div class="boxscore-summary">
+      <table class="boxscore-summary-table">
+        <thead>
+          <tr><th></th><th>{{ home_team.get('name','Home')[:20] }}</th><th>{{ away_team.get('name','Away')[:20] }}</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Total Yards</td><td>{{ game.home_total_yards }}</td><td>{{ game.away_total_yards }}</td></tr>
+          <tr><td>Rush Yards</td><td>{{ game.home_rush_yards }}</td><td>{{ game.away_rush_yards }}</td></tr>
+          <tr><td>Pass Yards</td><td>{{ game.home_pass_yards }}</td><td>{{ game.away_pass_yards }}</td></tr>
+          <tr><td>Turnovers</td><td>{{ game.home_turnovers }}</td><td>{{ game.away_turnovers }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% macro player_stats_section(label, stats) %}
+    <div class="boxscore-section">
+      <h2 class="boxscore-section-title">{{ label }}</h2>
+
+      {# ---- Passing ---- #}
+      {% set passers = [] %}
+      {% for p in stats %}{% if p.pass_attempts > 0 %}{% set _ = passers.append(p) %}{% endif %}{% endfor %}
+      {% if passers %}
+      <h3 class="boxscore-group-title">Passing</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>Cmp/Att</th><th>Yds</th><th>TD</th><th>INT</th><th>Sk</th></tr></thead>
+        <tbody>
+        {% for p in passers | sort(attribute='pass_yards', reverse=true) %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.pass_completions }}/{{ p.pass_attempts }}</td>
+            <td>{{ p.pass_yards }}</td>
+            <td>{{ p.pass_touchdowns }}</td>
+            <td>{{ p.interceptions_thrown }}</td>
+            <td>{{ p.sacks_taken }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {# ---- Rushing ---- #}
+      {% set rushers = [] %}
+      {% for p in stats %}{% if p.rush_attempts > 0 %}{% set _ = rushers.append(p) %}{% endif %}{% endfor %}
+      {% if rushers %}
+      <h3 class="boxscore-group-title">Rushing</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>Att</th><th>Yds</th><th>TD</th><th>Fum</th></tr></thead>
+        <tbody>
+        {% for p in rushers | sort(attribute='rush_yards', reverse=true) %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.rush_attempts }}</td>
+            <td>{{ p.rush_yards }}</td>
+            <td>{{ p.rush_touchdowns }}</td>
+            <td>{{ p.fumbles_lost }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {# ---- Receiving ---- #}
+      {% set receivers = [] %}
+      {% for p in stats %}{% if p.receptions > 0 %}{% set _ = receivers.append(p) %}{% endif %}{% endfor %}
+      {% if receivers %}
+      <h3 class="boxscore-group-title">Receiving</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>Rec</th><th>Tgt</th><th>Yds</th><th>TD</th></tr></thead>
+        <tbody>
+        {% for p in receivers | sort(attribute='receiving_yards', reverse=true) %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.receptions }}</td>
+            <td>{{ p.targets }}</td>
+            <td>{{ p.receiving_yards }}</td>
+            <td>{{ p.receiving_touchdowns }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {# ---- Defense ---- #}
+      {% set defenders = [] %}
+      {% for p in stats %}{% if p.tackles > 0 %}{% set _ = defenders.append(p) %}{% endif %}{% endfor %}
+      {% if defenders %}
+      <h3 class="boxscore-group-title">Defense</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>Tkl</th><th>Sk</th><th>TFL</th><th>INT</th><th>PD</th><th>FF</th></tr></thead>
+        <tbody>
+        {% for p in defenders | sort(attribute='tackles', reverse=true) %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.tackles }}</td>
+            <td>{{ p.sacks|int }}</td>
+            <td>{{ p.tackles_for_loss }}</td>
+            <td>{{ p.interceptions }}</td>
+            <td>{{ p.pass_deflections }}</td>
+            <td>{{ p.forced_fumbles }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {# ---- Kicking ---- #}
+      {% set kickers = [] %}
+      {% for p in stats %}{% if p.fg_attempts > 0 or p.xp_attempts > 0 %}{% set _ = kickers.append(p) %}{% endif %}{% endfor %}
+      {% if kickers %}
+      <h3 class="boxscore-group-title">Kicking</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>FG</th><th>XP</th></tr></thead>
+        <tbody>
+        {% for p in kickers %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.fg_made }}/{{ p.fg_attempts }}</td>
+            <td>{{ p.xp_made }}/{{ p.xp_attempts }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {# ---- Punting ---- #}
+      {% set punters = [] %}
+      {% for p in stats %}{% if p.punts > 0 %}{% set _ = punters.append(p) %}{% endif %}{% endfor %}
+      {% if punters %}
+      <h3 class="boxscore-group-title">Punting</h3>
+      <table class="boxscore-table">
+        <thead><tr><th>Player</th><th>Punts</th><th>Yds</th><th>Avg</th></tr></thead>
+        <tbody>
+        {% for p in punters %}
+          <tr>
+            <td>{{ p.position }} {{ p.name or ('Player #' ~ p.player_id) }}</td>
+            <td>{{ p.punts }}</td>
+            <td>{{ p.punt_yards }}</td>
+            <td>{{ (p.punt_yards / p.punts)|round(1) if p.punts else 0 }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    {% endmacro %}
+
+    <div class="boxscore-teams">
+      {{ player_stats_section(home_team.get('name', 'Home'), home_stats) }}
+      {{ player_stats_section(away_team.get('name', 'Away'), away_stats) }}
+    </div>
+  </main>
+</body>
+</html>

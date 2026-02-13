@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setting Up League — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="creation-card created-card">
+    <h1>Setting Up Your League</h1>
+    <p class="intro">Generating divisions, teams, and players. This may take a moment.</p>
+    <div class="progress-wrap" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Generation progress">
+      <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+    </div>
+    <p class="progress-step" id="progress-step">Starting...</p>
+    <p class="next-step">When complete, you'll be redirected to select your team.</p>
+  </main>
+  <script>
+    (function () {
+      const bar = document.getElementById('progress-bar');
+      const step = document.getElementById('progress-step');
+      const pollInterval = 500;
+
+      function poll() {
+        fetch('{{ url_for("api_setup_status") }}', { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            const pct = Math.min(100, Math.max(0, data.progress_pct || 0));
+            bar.style.width = pct + '%';
+            bar.parentElement.setAttribute('aria-valuenow', pct);
+            if (data.current_step) step.textContent = data.current_step;
+            if (data.status === 'ready') {
+              window.location.href = '{{ url_for("team_selection") }}';
+              return;
+            }
+            setTimeout(poll, pollInterval);
+          })
+          .catch(function () {
+            setTimeout(poll, pollInterval);
+          });
+      }
+      poll();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Your Team — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container">
+    <h1>{% if offseason %}Select Your Team{% else %}Select Your High School Team{% endif %}</h1>
+    <p class="teams-intro">Choose a team to manage. {% if offseason %}During offseason you may switch to any level (HS, College, NFL). {% endif %}Filter by division and browse rosters (sorted by overall).</p>
+    <p class="nav-links">
+      <a href="{{ url_for('manage_team') }}" class="next-link">Team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    <div class="region-filter">
+      <label for="region-select">{% if offseason %}Division{% else %}Region{% endif %}</label>
+      <select id="region-select" class="region-select" aria-label="Filter by division">
+        <option value="">All</option>
+        {% for r in regions %}
+        <option value="{{ r.name }}">{{ r.name }}{% if offseason and level_labels and r.level %} ({{ level_labels.get(r.level, r.level) }}){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% for div in divisions %}
+    <section class="division-card" data-region="{{ div.name }}" aria-labelledby="div-{{ div.id }}">
+      <h2 id="div-{{ div.id }}" class="division-title">
+        <span class="division-name">{{ div.name }}</span>{% if offseason and div.level and level_labels %}<span class="division-level"> — {{ level_labels.get(div.level, div.level) }}</span>{% endif %}
+      </h2>
+      <div class="team-cards">
+        {% for team in div.teams %}
+        <article class="team-card">
+          <header class="team-card-header">
+            <h3 class="team-name">{{ team.name }}</h3>
+            {% if current_team_id == team.id %}
+            <span class="your-team-badge">Your team</span>
+            {% endif %}
+          </header>
+          <dl class="team-stats">
+            <dt>Prestige</dt>
+            <dd>{{ team.prestige }}</dd>
+            <dt>Facility</dt>
+            <dd>{{ team.facility_grade }}</dd>
+          </dl>
+          <div class="team-players-wrap">
+            <span class="team-players-label">Roster ({{ team.players|length }}) — click header to sort</span>
+            <div class="team-players-list-headers">
+              <button type="button" class="sort-header sort-header--active" data-sort="overall" data-dir="desc">OVR ↓</button>
+              <button type="button" class="sort-header" data-sort="position">Pos</button>
+              <button type="button" class="sort-header" data-sort="age">Age</button>
+              <button type="button" class="sort-header" data-sort="speed">Spd</button>
+            </div>
+            <ul class="team-players-list team-players-list-sortable" tabindex="0" data-team-id="{{ team.id }}">
+              {% for p in team.players %}
+              <li class="team-player-row" data-overall="{{ p.overall }}" data-position="{{ p.position }}" data-age="{{ p.age }}" data-speed="{{ p.speed }}">
+                <span class="player-pos">{{ p.position }}{% if p.secondary_position %}/{{ p.secondary_position }}{% endif %}</span>
+                <span class="player-ovr">OVR {{ p.overall }}</span>
+                <span class="player-detail">Age {{ p.age }} · Spd {{ p.speed }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          <form action="{{ url_for('team_select') }}" method="post" class="team-select-form">
+            <input type="hidden" name="team_id" value="{{ team.id }}">
+            {% if current_team_id == team.id %}
+            <button type="button" class="team-select-btn team-select-btn--selected" disabled>Selected</button>
+            {% else %}
+            <button type="submit" class="team-select-btn">Select</button>
+            {% endif %}
+          </form>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </main>
+  <script>
+    (function () {
+      var regionSelect = document.getElementById('region-select');
+      var divisionCards = document.querySelectorAll('.division-card');
+      regionSelect.addEventListener('change', function () {
+        var val = this.value;
+        divisionCards.forEach(function (card) {
+          card.style.display = val === '' || card.getAttribute('data-region') === val ? '' : 'none';
+        });
+      });
+
+      document.querySelectorAll('.team-players-list-sortable').forEach(function (listEl) {
+        var rows = Array.from(listEl.querySelectorAll('.team-player-row'));
+        var activeHeader = listEl.closest('.team-players-wrap').querySelector('.sort-header--active');
+        var currentSort = activeHeader ? activeHeader.getAttribute('data-sort') : 'overall';
+        var currentDir = activeHeader ? activeHeader.getAttribute('data-dir') : 'desc';
+
+        function sortRows(sortKey, dir) {
+          var mult = dir === 'asc' ? 1 : -1;
+          rows.sort(function (a, b) {
+            var av = a.getAttribute('data-' + sortKey);
+            var bv = b.getAttribute('data-' + sortKey);
+            if (sortKey === 'position' || sortKey === 'overall' || sortKey === 'age' || sortKey === 'speed') {
+              var an = parseInt(av, 10);
+              var bn = parseInt(bv, 10);
+              if (!isNaN(an) && !isNaN(bn)) return mult * (an - bn);
+              return mult * String(av).localeCompare(String(bv));
+            }
+            return mult * String(av).localeCompare(String(bv));
+          });
+          rows.forEach(function (r) { listEl.appendChild(r); });
+        }
+
+        listEl.closest('.team-players-wrap').querySelectorAll('.sort-header').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var sortKey = this.getAttribute('data-sort');
+            listEl.closest('.team-players-wrap').querySelectorAll('.sort-header').forEach(function (b) {
+              b.classList.remove('sort-header--active');
+              b.textContent = b.getAttribute('data-sort') === 'overall' ? 'OVR' : b.getAttribute('data-sort').charAt(0).toUpperCase() + b.getAttribute('data-sort').slice(1);
+            });
+            if (sortKey === currentSort) {
+              currentDir = currentDir === 'asc' ? 'desc' : 'asc';
+            } else {
+              currentSort = sortKey;
+              currentDir = sortKey === 'overall' ? 'desc' : 'asc';
+            }
+            this.classList.add('sort-header--active');
+            this.textContent = (sortKey === 'overall' ? 'OVR' : sortKey === 'position' ? 'Pos' : sortKey === 'age' ? 'Age' : 'Spd') + (currentDir === 'desc' ? ' ↓' : ' ↑');
+            sortRows(currentSort, currentDir);
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

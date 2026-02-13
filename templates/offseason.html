@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offseason — Season {{ season }} — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container manage-team-container">
+    <h1>Offseason — Season {{ season }}</h1>
+    <p class="teams-intro">Complete each step to advance to the new season.</p>
+    <p class="nav-links">
+      {% if can_change_team %}
+      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <span class="nav-sep">|</span>
+      {% endif %}
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul class="flash-messages" aria-live="polite">
+      {% for message in messages %}
+      <li class="flash-message">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
+    <div class="offseason-progress" role="progressbar" aria-valuenow="{{ step_index + 1 }}" aria-valuemin="1" aria-valuemax="{{ total_steps }}" aria-label="Offseason step">
+      <p class="offseason-step-label">Step {{ step_index + 1 }} of {{ total_steps }}: {{ step_label }}</p>
+    </div>
+
+    <div class="offseason-card">
+      <h2 class="season-card-title">{{ step_label }}</h2>
+      {% if step == 'season_summary' %}
+      <section class="season-summary" aria-labelledby="season-summary-title">
+        {% if season_summary %}
+        <h3 id="season-summary-title" class="season-summary-heading">Season {{ season_summary.season }} — {{ season_summary.team_name }}</h3>
+        <p class="season-summary-division">{{ season_summary.division_name }}</p>
+        <div class="season-summary-stats">
+          <p><strong>Expected placing (by prestige):</strong> {{ season_summary.expected_place }} of {{ season_summary.num_teams }}</p>
+          <p><strong>Actual placing:</strong> {{ season_summary.actual_place }} of {{ season_summary.num_teams }}</p>
+          <p><strong>Record:</strong> {{ season_summary.wins }}–{{ season_summary.losses }}</p>
+          <p><strong>Points:</strong> {{ season_summary.points_for }} for, {{ season_summary.points_against }} against</p>
+        </div>
+        {% else %}
+        <p class="offseason-desc">No season summary available.</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+          <button type="submit" class="sim-btn">Continue to offseason</button>
+        </form>
+      </section>
+      {% elif step == 'skill_points' %}
+      <section class="skill-points-spend" aria-labelledby="skill-points-title">
+        <h3 id="skill-points-title" class="season-summary-heading">Spend earned skill points</h3>
+        {% if manager_for_skills %}
+        <p class="offseason-desc">You have <strong>{{ manager_for_skills.unspent_skill_points }}</strong> unspent point(s). Manager prestige: <strong>{{ manager_for_skills.prestige }}</strong>. Add points to your GM attributes (no respec — only add).</p>
+        <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form skill-points-form">
+          <table class="skill-points-table">
+            <thead>
+              <tr>
+                <th>Attribute</th>
+                <th>Current</th>
+                <th>Add points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for key, label in manager_skills.items() %}
+              <tr>
+                <td>{{ label }}</td>
+                <td>{{ skill_current_values.get(key, 0) }}</td>
+                <td><input type="number" name="skill_{{ key }}" value="0" min="0" max="{{ manager_for_skills.unspent_skill_points }}" step="1" aria-label="Add to {{ label }}"></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <button type="submit" class="sim-btn">Spend points &amp; continue</button>
+        </form>
+        {% else %}
+        <p class="offseason-desc">Unable to load manager. Continue to proceed.</p>
+        <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+          <button type="submit" class="sim-btn">Continue</button>
+        </form>
+        {% endif %}
+      </section>
+      {% elif step == 'team_change' %}
+      <p class="offseason-desc">You may change to a different team before the new season. Use the <strong>Change team</strong> link above, then continue when ready.</p>
+      {% elif step == 'freshmen' %}
+      <p class="offseason-desc">A new class of high school freshmen will be added to every HS program.</p>
+      {% elif step == 'recruiting' %}
+      <p class="offseason-desc">High school seniors will be recruited by college programs. The best players sign; others retire.</p>
+      {% elif step == 'draft' %}
+      <p class="offseason-desc">College seniors enter the NFL Draft. The best are selected by pro teams; others retire.</p>
+      {% elif step == 'training_camp' %}
+      <p class="offseason-desc">High school teams hold training camps. Your players develop more during this period.</p>
+      {% if level == 'high_school' and offense_practice_options and defense_practice_options %}
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form offseason-training-form">
+        <div class="practice-focus-row">
+          <label for="offense_focus">Offense focus</label>
+          <select name="offense_focus" id="offense_focus">
+            {% for key, label in offense_practice_options %}
+            <option value="{{ key }}" {% if training_camp_plan and training_camp_plan.offense_focus == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="practice-focus-row">
+          <label for="defense_focus">Defense focus</label>
+          <select name="defense_focus" id="defense_focus">
+            {% for key, label in defense_practice_options %}
+            <option value="{{ key }}" {% if training_camp_plan and training_camp_plan.defense_focus == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="sim-btn">Run training camp &amp; continue</button>
+      </form>
+      {% endif %}
+      {% elif step == 'development' %}
+      <p class="offseason-desc">All HS and college players undergo offseason development (higher gains than in-season).</p>
+      {% elif step == 'complete' %}
+      <p class="offseason-desc">Class years advance, the new schedule is set, and Season {{ season + 1 }} begins.</p>
+      {% else %}
+      <p class="offseason-desc">Continue to process this step.</p>
+      {% endif %}
+
+      {% if step != 'season_summary' and step != 'skill_points' and not (step == 'training_camp' and level == 'high_school' and offense_practice_options and defense_practice_options) %}
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <button type="submit" class="sim-btn">
+          {% if step == 'team_change' %}Continue to skill points{% elif step == 'complete' %}Start new season{% else %}Run &amp; continue{% endif %}
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if team %}
+    <p class="offseason-team">Current team: <strong>{{ team.name }}</strong>{% if division %} ({{ division.name }}){% endif %}</p>
+    {% endif %}
+
+    {% if offseason_display_result and offseason_display_result.step == 'freshmen' %}
+    <section class="offseason-new-players" aria-labelledby="new-players-title">
+      <h2 id="new-players-title" class="season-card-title">Incoming freshmen</h2>
+      <p class="offseason-desc">{{ offseason_display_result.players_added }} new players across {{ offseason_display_result.teams }} high schools.</p>
+      {% if new_players_my_team %}
+      <h3 class="offseason-new-players-sub">Your team — {{ new_players_my_team|length }} new freshmen</h3>
+      <table class="offseason-players-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Pos</th>
+            <th>OVR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in new_players_my_team %}
+          <tr>
+            <td>{{ p.name if p.name else 'Player #' ~ p.id|string }}</td>
+            <td>{{ p.position }}</td>
+            <td>{{ p.overall }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="offseason-desc">You are not at a high school, so no new freshmen were added to your current team.</p>
+      {% endif %}
+      {% if new_players_other %}
+      <h3 class="offseason-new-players-sub">Other schools (sample)</h3>
+      <table class="offseason-players-table">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>Name</th>
+            <th>Pos</th>
+            <th>OVR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in new_players_other %}
+          <tr>
+            <td>{{ p.team_name or '' }}</td>
+            <td>{{ p.name if p.name else 'Player #' ~ p.id|string }}</td>
+            <td>{{ p.position }}</td>
+            <td>{{ p.overall }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
