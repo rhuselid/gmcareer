@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Player Database — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container manage-team-container">
+    <h1>Player Database</h1>
+    <p class="teams-intro">All players at every level (high school, college, NFL). Add conditions and join them with <strong>AND</strong> or <strong>OR</strong> (left‑to‑right).</p>
+    <p class="nav-links">
+      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('manage_team') }}" class="next-link">Team</a>
+      <span class="nav-sep">|</span>
+      <strong>Player Database</strong>
+    </p>
+
+    <section class="player-db-filters" aria-labelledby="filter-heading">
+      <h2 id="filter-heading" class="player-db-section-title">Filters</h2>
+      <div id="filter-conditions" class="filter-conditions">
+        <!-- Condition rows added by JS -->
+      </div>
+      <div class="filter-actions">
+        <button type="button" id="add-condition-btn" class="filter-add-btn">+ Add condition</button>
+        <button type="button" id="search-btn" class="filter-search-btn">Search</button>
+      </div>
+    </section>
+
+    <section class="player-db-results" aria-labelledby="results-heading">
+      <h2 id="results-heading" class="player-db-section-title">
+        Results <span id="results-count" class="results-count"></span>
+      </h2>
+      <div class="player-db-table-wrap">
+        <table class="player-db-table" id="player-db-table">
+          <thead>
+            <tr>
+              <th class="player-db-sort-header" data-sort="name" data-dir="asc" scope="col"><button type="button">Name</button></th>
+              <th class="player-db-sort-header" data-sort="position" data-dir="asc" scope="col"><button type="button">Pos</button></th>
+              <th class="player-db-sort-header" data-sort="team_name" data-dir="asc" scope="col"><button type="button">Team</button></th>
+              <th class="player-db-sort-header" data-sort="level" data-dir="asc" scope="col"><button type="button">Level</button></th>
+              <th class="player-db-sort-header" data-sort="class_label" data-dir="asc" scope="col"><button type="button">Class</button></th>
+              <th class="player-db-sort-header" data-sort="age" data-dir="desc" scope="col"><button type="button">Age</button></th>
+              <th class="player-db-sort-header" data-sort="overall" data-dir="desc" scope="col"><button type="button">OVR</button></th>
+              <th class="player-db-sort-header" data-sort="potential" data-dir="desc" scope="col"><button type="button">Pot</button></th>
+              <th class="player-db-sort-header" data-sort="speed" data-dir="desc" scope="col"><button type="button">Spd</button></th>
+            </tr>
+          </thead>
+          <tbody id="player-db-tbody">
+            <!-- Filled by JS -->
+          </tbody>
+        </table>
+      </div>
+      <p id="player-db-loading" class="player-db-loading" aria-live="polite">Loading…</p>
+      <p id="player-db-error" class="player-db-error" aria-live="polite" hidden></p>
+    </section>
+  </main>
+
+  <script>
+(function () {
+  var LEVEL_LABELS = {{ level_labels | tojson }};
+  var POSITIONS = {{ positions | tojson }};
+  var CLASS_LABELS = {{ class_labels | tojson }};
+  var ATTRIBUTE_OPTIONS = {{ attribute_options | tojson }};
+
+  var conditionIndex = 0;
+  var searchUrl = '{{ url_for("api_player_database_search") }}';
+  var lastPlayers = [];
+  var currentSort = 'overall';
+  var currentSortDir = 'desc';
+  var numericKeys = { age: true, overall: true, potential: true, speed: true };
+
+  function addConditionRow() {
+    var container = document.getElementById('filter-conditions');
+    var idx = conditionIndex++;
+    var row = document.createElement('div');
+    row.className = 'filter-condition-row';
+    row.setAttribute('data-index', idx);
+    var isFirst = container.children.length === 0;
+    var positionOptionsHtml = POSITIONS.map(function(p) {
+      return '<label class="filter-position-check-label"><input type="checkbox" class="filter-position-cb" value="' + p + '"> ' + p + '</label>';
+    }).join('');
+    var connectiveHtml = isFirst
+      ? '<span class="filter-connective-label">Where</span>'
+      : '<select class="filter-connective" aria-label="Join with previous (AND / OR)">' +
+          '<option value="and">AND</option>' +
+          '<option value="or" selected>OR</option>' +
+        '</select>';
+    row.innerHTML =
+      connectiveHtml +
+      '<select class="filter-type-select" data-type-select aria-label="Condition type">' +
+        '<option value="">— Type —</option>' +
+        '<option value="position">Position</option>' +
+        '<option value="attribute">Attribute</option>' +
+        '<option value="bio">Bio</option>' +
+      '</select>' +
+      '<div class="filter-type-options filter-type-position" data-type-options="position" style="display:none">' +
+        '<select class="filter-position-op" aria-label="Is in / Is not in">' +
+          '<option value="true">IS in</option>' +
+          '<option value="false">IS NOT in</option>' +
+        '</select>' +
+        '<div class="filter-position-dropdown-wrap">' +
+          '<button type="button" class="filter-position-trigger" aria-haspopup="listbox" aria-expanded="false">Select positions…</button>' +
+          '<div class="filter-position-dropdown" role="listbox" aria-label="Positions" hidden>' +
+            '<div class="filter-position-dropdown-inner">' +
+              positionOptionsHtml +
+            '</div>' +
+            '<button type="button" class="filter-position-done">Done</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="filter-type-options filter-type-attribute" data-type-options="attribute" style="display:none">' +
+        '<select class="filter-attr-name" aria-label="Attribute">' +
+          ATTRIBUTE_OPTIONS.map(function(a) { return '<option value="' + a + '">' + a + '</option>'; }).join('') +
+        '</select>' +
+        '<select class="filter-attr-op" aria-label="Operator">' +
+          '<option value=">">&gt;</option><option value=">=">&gt;=</option>' +
+          '<option value="=" selected>=</option><option value="<=">&lt;=</option><option value="<">&lt;</option><option value="!=">≠</option>' +
+        '</select>' +
+        '<input type="number" class="filter-attr-value" min="0" max="99" value="50" aria-label="Value">' +
+      '</div>' +
+      '<div class="filter-type-options filter-type-bio" data-type-options="bio" style="display:none">' +
+        '<select class="filter-bio-field" aria-label="Bio field">' +
+          '<option value="level">Level</option>' +
+          '<option value="class_year">Class</option>' +
+          '<option value="age">Age</option>' +
+        '</select>' +
+        '<span class="filter-bio-value-wrap filter-bio-level">' +
+          '<select class="filter-bio-value-level" aria-label="Level">' +
+            Object.keys(LEVEL_LABELS).map(function(k) { return '<option value="' + k + '">' + LEVEL_LABELS[k] + '</option>'; }).join('') +
+          '</select>' +
+        '</span>' +
+        '<span class="filter-bio-value-wrap filter-bio-class_year" style="display:none">' +
+          '<select class="filter-bio-value-class" aria-label="Class">' +
+            Object.keys(CLASS_LABELS).map(function(k) { return '<option value="' + k + '">' + CLASS_LABELS[k] + '</option>'; }).join('') +
+          '</select>' +
+        '</span>' +
+        '<span class="filter-bio-value-wrap filter-bio-age" style="display:none">' +
+          '<select class="filter-bio-op" aria-label="Operator">' +
+            '<option value=">">&gt;</option><option value=">=">&gt;=</option><option value="=" selected>=</option><option value="<=">&lt;=</option><option value="<">&lt;</option>' +
+          '</select>' +
+          '<input type="number" class="filter-bio-value-age" min="14" max="99" value="17" aria-label="Age">' +
+        '</span>' +
+      '</div>' +
+      '<span class="filter-condition-summary" aria-live="polite"></span>' +
+      '<button type="button" class="filter-remove-btn" aria-label="Remove condition">&times;</button>';
+    container.appendChild(row);
+
+    var typeSelect = row.querySelector('[data-type-select]');
+    typeSelect.addEventListener('change', function() {
+      row.querySelectorAll('[data-type-options]').forEach(function(opt) {
+        opt.style.display = opt.getAttribute('data-type-options') === this.value ? '' : 'none';
+      }.bind(this));
+      var bioField = row.querySelector('.filter-bio-field');
+      if (this.value === 'bio') {
+        updateBioValueVisibility(row, bioField.value);
+      }
+      updateConditionSummary(row);
+    });
+
+    row.querySelector('.filter-bio-field').addEventListener('change', function() {
+      updateBioValueVisibility(row, this.value);
+      updateConditionSummary(row);
+    });
+
+    row.querySelectorAll('.filter-bio-value-level, .filter-bio-value-class, .filter-bio-op, .filter-bio-value-age').forEach(function(el) {
+      el.addEventListener('change', function() { updateConditionSummary(row); });
+    });
+    row.querySelector('.filter-bio-value-age').addEventListener('input', function() { updateConditionSummary(row); });
+
+    row.querySelector('.filter-position-op').addEventListener('change', function() { updateConditionSummary(row); });
+    row.querySelectorAll('.filter-position-cb').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        updatePositionTriggerText(row);
+        updateConditionSummary(row);
+      });
+    });
+
+    row.querySelector('.filter-attr-name').addEventListener('change', function() { updateConditionSummary(row); });
+    row.querySelector('.filter-attr-op').addEventListener('change', function() { updateConditionSummary(row); });
+    row.querySelector('.filter-attr-value').addEventListener('input', function() { updateConditionSummary(row); });
+    row.querySelector('.filter-attr-value').addEventListener('change', function() { updateConditionSummary(row); });
+
+    var trigger = row.querySelector('.filter-position-trigger');
+    var dropdown = row.querySelector('.filter-position-dropdown');
+    if (trigger && dropdown) {
+      trigger.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var open = dropdown.hidden === false;
+        document.querySelectorAll('.filter-position-dropdown').forEach(function(d) { d.hidden = true; });
+        document.querySelectorAll('.filter-position-trigger').forEach(function(t) { t.setAttribute('aria-expanded', 'false'); });
+        if (!open) {
+          dropdown.hidden = false;
+          trigger.setAttribute('aria-expanded', 'true');
+        }
+      });
+      row.querySelector('.filter-position-done').addEventListener('click', function() {
+        dropdown.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        updatePositionTriggerText(row);
+      });
+    }
+
+    row.querySelector('.filter-remove-btn').addEventListener('click', function() {
+      row.remove();
+    });
+  }
+
+  function updatePositionTriggerText(row) {
+    var trigger = row.querySelector('.filter-position-trigger');
+    if (!trigger) return;
+    var checked = row.querySelectorAll('.filter-position-cb:checked');
+    var vals = Array.from(checked).map(function(c) { return c.value; }).sort();
+    trigger.textContent = vals.length ? vals.join(', ') : 'Select positions…';
+  }
+
+  function updateConditionSummary(row) {
+    var summary = row.querySelector('.filter-condition-summary');
+    if (!summary) return;
+    var typeSelect = row.querySelector('[data-type-select]');
+    var type = typeSelect ? typeSelect.value : '';
+    var text = '';
+    if (type === 'position') {
+      var isIn = row.querySelector('.filter-position-op').value === 'true';
+      var positions = Array.from(row.querySelectorAll('.filter-position-cb:checked')).map(function(c) { return c.value; }).sort();
+      text = positions.length
+        ? 'Position ' + (isIn ? 'IS in ' : 'IS NOT in ') + positions.join(', ')
+        : '';
+    } else if (type === 'attribute') {
+      var attr = row.querySelector('.filter-attr-name').value;
+      var op = row.querySelector('.filter-attr-op').value;
+      var opSymbol = { '>': '>', '>=': '≥', '=': '=', '<=': '≤', '<': '<', '!=': '≠' }[op] || op;
+      var val = row.querySelector('.filter-attr-value').value;
+      text = attr ? attr + ' ' + opSymbol + ' ' + val : '';
+    } else if (type === 'bio') {
+      var bioField = row.querySelector('.filter-bio-field').value;
+      if (bioField === 'level') {
+        var levelSelect = row.querySelector('.filter-bio-value-level');
+        var levelKey = levelSelect ? levelSelect.value : '';
+        var levelLabel = LEVEL_LABELS[levelKey] || levelKey;
+        text = levelKey ? 'Level = ' + levelLabel : '';
+      } else if (bioField === 'class_year') {
+        var classSelect = row.querySelector('.filter-bio-value-class');
+        var classKey = classSelect ? classSelect.value : '';
+        var classLabel = CLASS_LABELS[classKey] || classKey;
+        text = classKey ? 'Class = ' + classLabel : '';
+      } else if (bioField === 'age') {
+        var ageOp = row.querySelector('.filter-bio-op').value;
+        var ageOpSymbol = { '>': '>', '>=': '≥', '=': '=', '<=': '≤', '<': '<' }[ageOp] || ageOp;
+        var ageVal = row.querySelector('.filter-bio-value-age').value;
+        text = 'Age ' + ageOpSymbol + ' ' + ageVal;
+      }
+    }
+    summary.textContent = text;
+  }
+
+  function updateBioValueVisibility(row, field) {
+    row.querySelectorAll('.filter-bio-value-wrap').forEach(function(w) {
+      var name = w.className.match(/filter-bio-(\w+)/);
+      w.style.display = name && name[1] === field ? '' : 'none';
+    });
+  }
+
+  function collectConditions() {
+    var conditions = [];
+    var connectives = [];
+    var rows = document.querySelectorAll('.filter-condition-row');
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var typeSelect = row.querySelector('[data-type-select]');
+      var type = typeSelect ? typeSelect.value : '';
+      if (!type) continue;
+
+      if (i > 0) {
+        var connSelect = row.querySelector('.filter-connective');
+        connectives.push(connSelect ? connSelect.value : 'or');
+      }
+
+      if (type === 'position') {
+        var isIn = row.querySelector('.filter-position-op').value === 'true';
+        var positions = Array.from(row.querySelectorAll('.filter-position-cb:checked')).map(function(c) { return c.value; });
+        if (positions.length) conditions.push({ type: 'position', is_in: isIn, positions: positions });
+      } else if (type === 'attribute') {
+        var attr = row.querySelector('.filter-attr-name').value;
+        var op = row.querySelector('.filter-attr-op').value;
+        var val = parseInt(row.querySelector('.filter-attr-value').value, 10);
+        if (!isNaN(val)) conditions.push({ type: 'attribute', attribute: attr, op: op, value: val });
+      } else if (type === 'bio') {
+        var bioField = row.querySelector('.filter-bio-field').value;
+        if (bioField === 'level') {
+          var levelVal = row.querySelector('.filter-bio-value-level').value;
+          conditions.push({ type: 'bio', field: 'level', value: levelVal });
+        } else if (bioField === 'class_year') {
+          var classVal = parseInt(row.querySelector('.filter-bio-value-class').value, 10);
+          conditions.push({ type: 'bio', field: 'class_year', value: classVal });
+        } else if (bioField === 'age') {
+          var ageOp = row.querySelector('.filter-bio-op').value;
+          var ageVal = parseInt(row.querySelector('.filter-bio-value-age').value, 10);
+          if (!isNaN(ageVal)) conditions.push({ type: 'bio', field: 'age', op: ageOp, value: ageVal });
+        }
+      }
+    }
+    return { conditions: conditions, connectives: connectives };
+  }
+
+  function getSortValue(p, key) {
+    if (key === 'name') return (p.name || 'Player #' + p.id).toLowerCase();
+    if (key === 'position') return (p.position || '') + (p.secondary_position ? '/' + p.secondary_position : '');
+    if (key === 'team_name') return (p.team_name || '').toLowerCase();
+    if (key === 'level') return (LEVEL_LABELS[p.level] || p.level || '').toLowerCase();
+    if (key === 'class_label') return (p.class_label || '').toLowerCase();
+    if (numericKeys[key]) return Number(p[key]) || 0;
+    return '';
+  }
+
+  function sortPlayers(players, key, dir) {
+    var mult = dir === 'asc' ? 1 : -1;
+    var numeric = numericKeys[key];
+    return players.slice().sort(function(a, b) {
+      var av = getSortValue(a, key);
+      var bv = getSortValue(b, key);
+      if (numeric) return mult * (av - bv);
+      var sa = String(av), sb = String(bv);
+      if (sa < sb) return -mult;
+      if (sa > sb) return mult;
+      return 0;
+    });
+  }
+
+  function renderPlayers(players) {
+    var tbody = document.getElementById('player-db-tbody');
+    tbody.innerHTML = '';
+    players.forEach(function(p) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><a href="#" class="player-link" data-player-id="' + p.id + '">' + (p.name || 'Player #' + p.id) + '</a></td>' +
+        '<td>' + (p.position || '') + (p.secondary_position ? '/' + p.secondary_position : '') + '</td>' +
+        '<td>' + (p.team_name || '') + '</td>' +
+        '<td>' + (LEVEL_LABELS[p.level] || p.level || '') + '</td>' +
+        '<td>' + (p.class_label || '') + '</td>' +
+        '<td>' + (p.age ?? '') + '</td>' +
+        '<td>' + (p.overall ?? '') + '</td>' +
+        '<td>' + (p.potential ?? '') + '</td>' +
+        '<td>' + (p.speed ?? '') + '</td>';
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('.player-link').forEach(function(link) {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        var id = this.getAttribute('data-player-id');
+        if (id) window.open('{{ url_for("manage_team") }}#player-' + id, '_blank');
+      });
+    });
+  }
+
+  function getSortHeaderLabel(key) {
+    var labels = { name: 'Name', position: 'Pos', team_name: 'Team', level: 'Level', class_label: 'Class', age: 'Age', overall: 'OVR', potential: 'Pot', speed: 'Spd' };
+    return labels[key] || key;
+  }
+
+  function updateSortHeaders(activeKey, dir) {
+    var table = document.getElementById('player-db-table');
+    if (!table) return;
+    var arrow = dir === 'asc' ? ' ↑' : ' ↓';
+    table.querySelectorAll('.player-db-sort-header').forEach(function(th) {
+      var key = th.getAttribute('data-sort');
+      var isActive = key === activeKey;
+      th.classList.toggle('player-db-sort-header--active', isActive);
+      th.setAttribute('data-dir', dir);
+      var btn = th.querySelector('button');
+      if (btn) btn.textContent = getSortHeaderLabel(key) + (isActive ? arrow : '');
+    });
+  }
+
+  function runSearch() {
+    var tbody = document.getElementById('player-db-tbody');
+    var loading = document.getElementById('player-db-loading');
+    var errorEl = document.getElementById('player-db-error');
+    var countEl = document.getElementById('results-count');
+    loading.hidden = false;
+    errorEl.hidden = true;
+    tbody.innerHTML = '';
+
+    var payload = collectConditions();
+    fetch(searchUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ conditions: payload.conditions, connectives: payload.connectives }),
+      credentials: 'same-origin'
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('Search failed');
+      return r.json();
+    })
+    .then(function(data) {
+      loading.hidden = true;
+      lastPlayers = data.players || [];
+      countEl.textContent = '(' + lastPlayers.length + ')';
+      var sorted = sortPlayers(lastPlayers, currentSort, currentSortDir);
+      renderPlayers(sorted);
+      updateSortHeaders(currentSort, currentSortDir);
+    })
+    .catch(function() {
+      loading.hidden = true;
+      errorEl.textContent = 'Failed to load results. Try again.';
+      errorEl.hidden = false;
+      countEl.textContent = '';
+    });
+  }
+
+  function onSortHeaderClick(key) {
+    if (key === currentSort) {
+      currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort = key;
+      currentSortDir = numericKeys[key] ? 'desc' : 'asc';
+    }
+    var sorted = sortPlayers(lastPlayers, currentSort, currentSortDir);
+    renderPlayers(sorted);
+    updateSortHeaders(currentSort, currentSortDir);
+  }
+
+  document.addEventListener('click', function(ev) {
+    document.querySelectorAll('.filter-position-dropdown').forEach(function(dropdown) {
+      if (dropdown.hidden) return;
+      var wrap = dropdown.closest('.filter-position-dropdown-wrap');
+      if (wrap && !wrap.contains(ev.target)) {
+        dropdown.hidden = true;
+        var t = wrap.querySelector('.filter-position-trigger');
+        if (t) t.setAttribute('aria-expanded', 'false');
+        var row = wrap.closest('.filter-condition-row');
+        if (row) updatePositionTriggerText(row);
+      }
+    });
+  });
+
+  document.getElementById('player-db-table').addEventListener('click', function(ev) {
+    var th = ev.target.closest('.player-db-sort-header');
+    if (th && (ev.target.tagName === 'BUTTON' || th.contains(ev.target))) {
+      var key = th.getAttribute('data-sort');
+      if (key) onSortHeaderClick(key);
+    }
+  });
+
+  document.getElementById('add-condition-btn').addEventListener('click', addConditionRow);
+  document.getElementById('search-btn').addEventListener('click', runSearch);
+
+  addConditionRow();
+  runSearch();
+})();
+  </script>
+</body>
+</html>

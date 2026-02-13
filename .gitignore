@@ -1,0 +1,60 @@
+# Virtual environments
+gmgame/
+.venv/
+venv/
+.env/
+.direnv/
+env/
+
+# Environment / secrets (do not commit)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Database and save data (SQLite — do not commit)
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Logs and temp
+*.log
+.cursor/
+*.tmp
+*.temp
+*~
+*.bak
+*.swp
+
+# IDE / OS
+.idea/
+.vscode/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+desktop.ini

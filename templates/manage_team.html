@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Team — {{ team.name }} — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container manage-team-container">
+    <h1>{{ team.name }}</h1>
+    <p class="teams-intro">Season {{ season }} — {{ division_name }}</p>
+    <p class="nav-links">
+      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul class="flash-messages" aria-live="polite">
+      {% for message in messages %}
+      <li class="flash-message">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
+    <nav class="manage-tabs" role="tablist" aria-label="View">
+      <button type="button" class="manage-tab manage-tab--active" role="tab" aria-selected="true" data-view="season">Season</button>
+      <button type="button" class="manage-tab" role="tab" aria-selected="false" data-view="offense">Offense</button>
+      <button type="button" class="manage-tab" role="tab" aria-selected="false" data-view="defense">Defense</button>
+      <button type="button" class="manage-tab" role="tab" aria-selected="false" data-view="special">Special Teams</button>
+      <button type="button" class="manage-tab" role="tab" aria-selected="false" data-view="table">Table View</button>
+      <button type="button" class="manage-tab" role="tab" aria-selected="false" data-view="practice">Practice</button>
+    </nav>
+
+    {# ===== Season Tab ===== #}
+    <div id="view-season" class="manage-view" role="tabpanel" aria-hidden="false">
+      <div class="season-header">
+        <div class="season-week-info">
+          {% if season_complete %}
+            <span class="season-week-label">Season Complete</span>
+          {% else %}
+            <span class="season-week-label">Week {{ week }} of {{ total_weeks }}</span>
+          {% endif %}
+          {% set user_record = namespace(w=0, l=0) %}
+          {% for s in standings %}{% if s.team_id == current_team_id %}{% set user_record.w = s.wins %}{% set user_record.l = s.losses %}{% endif %}{% endfor %}
+          <span class="season-record">Record: {{ user_record.w }}-{{ user_record.l }}</span>
+        </div>
+        {% if not season_complete %}
+        <form method="post" action="{{ url_for('sim_week') }}" class="sim-form" id="sim-week-form">
+          {% if depth_chart_valid is defined and not depth_chart_valid %}
+          <button type="submit" class="sim-btn sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Sim Week {{ week }}</button>
+          <span class="sim-btn-hint" title="{{ depth_chart_invalid_reason | default('') }}">You need a valid depth chart (every position filled) to sim.</span>
+          {% else %}
+          <button type="submit" class="sim-btn" id="sim-week-btn">Sim Week {{ week }}</button>
+          {% endif %}
+        </form>
+        <form method="post" action="{{ url_for('sim_season') }}" class="sim-form sim-form-inline">
+          {% if depth_chart_valid is defined and not depth_chart_valid %}
+          <button type="submit" class="sim-btn sim-btn--secondary sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Simulate Season</button>
+          {% else %}
+          <button type="submit" class="sim-btn sim-btn--secondary" id="sim-season-btn">Simulate Season</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="season-columns">
+        {# ---- Standings ---- #}
+        <div class="season-card">
+          <h2 class="season-card-title">{{ division_name }} Standings</h2>
+          <table class="standings-table">
+            <thead>
+              <tr>
+                <th class="st-rank">#</th>
+                <th class="st-team">Team</th>
+                <th>W</th>
+                <th>L</th>
+                <th>PF</th>
+                <th>PA</th>
+                <th>Diff</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in standings %}
+              <tr {% if s.team_id == current_team_id %}class="standings-highlight"{% endif %}>
+                <td class="st-rank">{{ loop.index }}</td>
+                <td class="st-team"><a href="#" class="team-link" data-team-id="{{ s.team_id }}">{{ s.team_name }}</a></td>
+                <td>{{ s.wins }}</td>
+                <td>{{ s.losses }}</td>
+                <td>{{ s.points_for }}</td>
+                <td>{{ s.points_against }}</td>
+                <td>{{ s.points_for - s.points_against }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# ---- Schedule ---- #}
+        <div class="season-card">
+          <h2 class="season-card-title">Schedule</h2>
+          <table class="schedule-table">
+            <thead>
+              <tr>
+                <th>Wk</th>
+                <th>Opponent</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in user_schedule %}
+              <tr {% if g.week == week and not season_complete %}class="schedule-current"{% endif %}>
+                <td>{{ g.week }}</td>
+                <td>{{ "vs" if g.is_home else "@" }} <a href="#" class="team-link" data-team-id="{{ g.opponent_id }}">{{ g.opponent_name }}</a></td>
+                <td>
+                  {% if g.game_id %}
+                    <a href="{{ url_for('game_result_view', game_id=g.game_id) }}" class="result-link result-{{ g.result }}">
+                      {{ g.result }} {{ g.user_score }}-{{ g.opp_score }}
+                    </a>
+                  {% else %}
+                    <span class="result-pending">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {# ---- Division team statistics (top 5 per category) ---- #}
+      {% if division_team_stat_leaders %}
+      <div class="stat-leaders-section">
+        <h2 class="season-card-title">{{ division_name }} — Team statistics</h2>
+        <p class="season-card-desc">Top 5 teams in each category (season totals from completed games).</p>
+        <div class="stat-leaders-grid">
+          {% set team_leader_categories = [
+            ("total_yards", "Total yards", "yds"),
+            ("rush_yards", "Rush yards", "yds"),
+            ("pass_yards", "Pass yards", "yds"),
+            ("fewest_turnovers", "Fewest turnovers", "TO"),
+          ] %}
+          {% for key, label, unit in team_leader_categories %}
+          {% if division_team_stat_leaders.get(key) %}
+          <div class="stat-leader-card">
+            <h3 class="stat-leader-title">{{ label }}</h3>
+            <ol class="stat-leader-list">
+              {% for entry in division_team_stat_leaders[key] %}
+              <li class="stat-leader-row {% if entry.team_id == current_team_id %}stat-leader-mine{% endif %}">
+                <span class="stat-leader-name">
+                  <a href="#" class="team-link" data-team-id="{{ entry.team_id }}">{{ entry.team_name }}</a>
+                </span>
+                <span class="stat-leader-value">{{ entry.value|int }} {{ unit }}</span>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# ---- Division Stat Leaders ---- #}
+      {% if stat_leaders %}
+      <div class="stat-leaders-section">
+        <h2 class="season-card-title">Division Leaders</h2>
+        <div class="stat-leaders-grid">
+          {% set leader_categories = [
+            ("passing_yards", "Passing Yards", "yds"),
+            ("rushing_yards", "Rushing Yards", "yds"),
+            ("receiving_yards", "Receiving Yards", "yds"),
+            ("receptions", "Receptions", "rec"),
+            ("sacks", "Sacks", "sck"),
+            ("interceptions", "Interceptions", "int"),
+          ] %}
+          {% for key, label, unit in leader_categories %}
+          {% if stat_leaders.get(key) %}
+          <div class="stat-leader-card">
+            <h3 class="stat-leader-title">{{ label }}</h3>
+            <ol class="stat-leader-list">
+              {% for entry in stat_leaders[key] %}
+              <li class="stat-leader-row {% if entry.team_id == current_team_id %}stat-leader-mine{% endif %}">
+                <span class="stat-leader-name">
+                  <a href="#" class="player-link" data-player-id="{{ entry.player_id }}">{{ entry.name }}</a>
+                </span>
+                <span class="stat-leader-team">{{ entry.team_name }}</span>
+                <span class="stat-leader-value">{{ entry.value|round(1) if entry.value != entry.value|int else entry.value|int }} {{ unit }}</span>
+              </li>
+              {% endfor %}
+            </ol>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ===== Offense Tab ===== #}
+    <div id="view-offense" class="manage-view" role="tabpanel" aria-hidden="true" hidden>
+      <div class="formation formation--offense">
+        {% for row in formation_offense_slots %}
+        <div class="formation-row">
+          {% for pos, slot_index in row %}
+          {% if pos %}
+          {% set pos_players = roster_grouped.offense.get(pos, []) %}
+          {% set _is_canonical = (slot_index == 1) and (pos != 'WR') %}
+          <div class="position-card" data-position="{{ pos }}" data-unit="offense" data-slot-index="{{ slot_index }}" {% if _is_canonical %}data-canonical="true"{% endif %} tabindex="0">
+            <h3 class="position-card-title">{% if pos in offense_positions_multiple %}{{ pos }}{{ slot_index }}{% else %}{{ pos }}{% endif %}</h3>
+            <ul class="position-card-list">
+              {% if _is_canonical %}
+                {% for p in pos_players %}
+                <li class="position-card-row" draggable="true" data-player-id="{{ p.id }}" data-position="{{ pos }}">
+                  <span class="pc-slot">{{ loop.index }}.</span>
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ p.overall }}</span>
+                  <span class="pc-pot">Pot {{ p.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                </li>
+                {% endfor %}
+              {% elif slot_index <= pos_players|length %}
+                {% set _slot_player = pos_players[slot_index - 1] %}
+                <li class="position-card-row position-card-row--slot" data-player-id="{{ _slot_player.id }}" data-position="{{ pos }}">
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
+                  <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                </li>
+              {% endif %}
+            </ul>
+          </div>
+          {% else %}
+          <div class="formation-cell formation-cell--empty"></div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ===== Defense Tab ===== #}
+    <div id="view-defense" class="manage-view" role="tabpanel" aria-hidden="true" hidden>
+      <div class="formation formation--defense">
+        {% for row in formation_defense_slots %}
+        <div class="formation-row">
+          {% for pos, slot_index in row %}
+          {% if pos %}
+          {% set pos_players = roster_grouped.defense.get(pos, []) %}
+          {% set _is_canonical = (slot_index == 1) %}
+          {% set _pos_label = (formation_defense_labels|default({})).get(pos, pos) %}
+          <div class="position-card" data-position="{{ pos }}" data-unit="defense" data-slot-index="{{ slot_index }}" {% if _is_canonical %}data-canonical="true"{% endif %} tabindex="0">
+            <h3 class="position-card-title">{% if pos in defense_positions_multiple %}{{ _pos_label }}{{ slot_index }}{% else %}{{ _pos_label }}{% endif %}</h3>
+            <ul class="position-card-list">
+              {% if _is_canonical %}
+                {% for p in pos_players %}
+                <li class="position-card-row" draggable="true" data-player-id="{{ p.id }}" data-position="{{ pos }}">
+                  <span class="pc-slot">{{ loop.index }}.</span>
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ p.overall }}</span>
+                  <span class="pc-pot">Pot {{ p.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                </li>
+                {% endfor %}
+              {% elif slot_index <= pos_players|length %}
+                {% set _slot_player = pos_players[slot_index - 1] %}
+                <li class="position-card-row position-card-row--slot" data-player-id="{{ _slot_player.id }}" data-position="{{ pos }}">
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
+                  <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                </li>
+              {% endif %}
+            </ul>
+          </div>
+          {% else %}
+          <div class="formation-cell formation-cell--empty"></div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ===== Special Teams Tab ===== #}
+    <div id="view-special" class="manage-view" role="tabpanel" aria-hidden="true" hidden>
+      <div class="formation formation--special">
+        {% for row in formation_special_slots %}
+        <div class="formation-row">
+          {% for pos, slot_index in row %}
+          {% if pos %}
+          {% set pos_players = roster_grouped.special_teams.get(pos, []) %}
+          {% set _is_canonical = (slot_index == 1) %}
+          <div class="position-card" data-position="{{ pos }}" data-unit="special_teams" data-slot-index="{{ slot_index }}" {% if _is_canonical %}data-canonical="true"{% endif %} tabindex="0">
+            <h3 class="position-card-title">{% if pos in special_positions_multiple %}{{ pos }}{{ slot_index }}{% else %}{{ pos }}{% endif %}</h3>
+            <ul class="position-card-list">
+              {% if _is_canonical %}
+                {% for p in pos_players %}
+                <li class="position-card-row" draggable="true" data-player-id="{{ p.id }}" data-position="{{ pos }}">
+                  <span class="pc-slot">{{ loop.index }}.</span>
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ p.overall }}</span>
+                  <span class="pc-pot">Pot {{ p.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                </li>
+                {% endfor %}
+              {% elif slot_index <= pos_players|length %}
+                {% set _slot_player = pos_players[slot_index - 1] %}
+                <li class="position-card-row position-card-row--slot" data-player-id="{{ _slot_player.id }}" data-position="{{ pos }}">
+                  <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
+                  <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
+                  <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
+                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                </li>
+              {% endif %}
+            </ul>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ===== Practice Tab ===== #}
+    <div id="view-practice" class="manage-view" role="tabpanel" aria-hidden="true" hidden>
+      <div class="practice-layout">
+        <div class="practice-card practice-card--narrow">
+          <h2 class="season-card-title">Practice plan — Week {{ week }}</h2>
+          <p class="practice-intro">Set a practice plan for offense and for defense. Development runs when you sim the week.</p>
+          <form method="post" action="{{ url_for('team_practice_set') }}" class="practice-form">
+            <fieldset class="practice-fieldset">
+              <legend class="practice-legend">Offense practice</legend>
+              {% for value, label in practice_offense_options %}
+              <label class="practice-option">
+                <input type="radio" name="offense_focus" value="{{ value }}" {% if practice_plan.offense_focus == value %}checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+              {% endfor %}
+            </fieldset>
+            <fieldset class="practice-fieldset">
+              <legend class="practice-legend">Defense practice</legend>
+              {% for value, label in practice_defense_options %}
+              <label class="practice-option">
+                <input type="radio" name="defense_focus" value="{{ value }}" {% if practice_plan.defense_focus == value %}checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+              {% endfor %}
+            </fieldset>
+            <button type="submit" class="sim-btn">Save practice plan</button>
+          </form>
+          {% if not season_complete %}
+          <p class="practice-hint">Development is applied when you click &quot;Sim Week {{ week }}&quot; on the Season tab.</p>
+          {% endif %}
+        </div>
+        <div class="practice-development-card">
+          <h2 class="season-card-title">Development (attribute level)</h2>
+          <p class="practice-intro">Improvements by attribute. Last week = gain in the previous simmed week; Start of season = total gain this season. Click column headers to sort.</p>
+          <div class="practice-development-table-wrap">
+            <table class="practice-development-table" id="practice-development-table">
+              <thead>
+                <tr>
+                  <th data-sort="name">Name <span class="sort-arrow"></span></th>
+                  <th data-sort="position">Pos <span class="sort-arrow"></span></th>
+                  <th data-sort="attribute">Attribute <span class="sort-arrow"></span></th>
+                  <th data-sort="change_last_week">Last week <span class="sort-arrow"></span></th>
+                  <th data-sort="change_season">Start of season <span class="sort-arrow"></span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in practice_player_development_attributes %}
+                <tr data-name="{{ row.player.name }}" data-position="{{ row.player.position }}" data-attribute="{{ row.attribute }}" data-change_last_week="{{ row.change_last_week }}" data-change_season="{{ row.change_season }}">
+                  <td><a href="#" class="player-link" data-player-id="{{ row.player.id }}">{{ row.player.name }}</a></td>
+                  <td>{{ row.player.position }}</td>
+                  <td>{{ row.attribute.replace('_', ' ')|title }}</td>
+                  <td>{% if row.change_last_week > 0 %}+{{ row.change_last_week }}{% else %}—{% endif %}</td>
+                  <td>{% if row.change_season > 0 %}+{{ row.change_season }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if not practice_player_development_attributes %}
+          <p class="practice-no-data">No attribute improvements recorded yet. Set your practice plan and sim a week to see gains here.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# ===== Table View Tab ===== #}
+    <div id="view-table" class="manage-view" role="tabpanel" aria-hidden="true" hidden>
+      <div class="table-view-controls">
+        <label for="view-ovr-as-position" class="table-view-label">View OVR as position:</label>
+        <select id="view-ovr-as-position" class="table-view-select" aria-label="Show projected OVR if player were at this position">
+          <option value="">Current position (actual OVR)</option>
+          {% for pos in all_positions %}
+          <option value="{{ pos }}">Projected at {{ pos }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="roster-table-wrap">
+        <table class="roster-table" id="roster-table">
+          <thead>
+            <tr>
+              <th data-sort="name">Name <span class="sort-arrow"></span></th>
+              <th data-sort="position">Pos <span class="sort-arrow"></span></th>
+              <th data-sort="overall">OVR <span class="sort-arrow"></span></th>
+              <th data-sort="potential">Pot <span class="sort-arrow"></span></th>
+              <th data-sort="starter">Starter <span class="sort-arrow"></span></th>
+              <th class="roster-dev-header" title="Development gain this season">Dev</th>
+              <th data-sort="class_year">Class <span class="sort-arrow"></span></th>
+              <th data-sort="age">Age <span class="sort-arrow"></span></th>
+              <th data-sort="height">Ht <span class="sort-arrow"></span></th>
+              <th data-sort="weight">Wt <span class="sort-arrow"></span></th>
+              <th data-sort="speed">Spd <span class="sort-arrow"></span></th>
+              <th data-sort="acceleration">Acc <span class="sort-arrow"></span></th>
+              <th data-sort="arm_strength">Arm <span class="sort-arrow"></span></th>
+              <th data-sort="run_block">RBk <span class="sort-arrow"></span></th>
+              <th data-sort="pass_rush">PRs <span class="sort-arrow"></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in roster_full %}
+            {% set dev_total = player_development_totals.get(p.id, 0) %}
+            <tr data-player-id="{{ p.id }}" data-name="{{ p.name }}" data-position="{{ p.position }}" data-overall="{{ p.overall }}" data-potential="{{ p.potential }}" data-starter="{{ 'true' if p.id in starter_ids else 'false' }}" data-class_year="{{ p.class_year }}" data-age="{{ p.age }}" data-height="{{ p.height }}" data-weight="{{ p.weight }}" data-speed="{{ p.speed }}" data-acceleration="{{ p.acceleration }}" data-arm_strength="{{ p.arm_strength }}" data-run_block="{{ p.run_block }}" data-pass_rush="{{ p.pass_rush }}" data-position-fits='{{ p.position_fits | tojson }}' data-position-potentials='{{ p.position_potentials | tojson }}'>
+              <td><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></td>
+              <td>{{ p.position }}</td>
+              <td class="roster-ovr-cell" data-overall="{{ p.overall }}">{{ p.overall }}</td>
+              <td class="roster-pot-cell" data-potential="{{ p.potential }}">{{ p.potential }}</td>
+              <td>{% if p.id in starter_ids %}True{% else %}False{% endif %}</td>
+              <td class="roster-dev-cell">{% if dev_total > 0 %}+{{ dev_total }}{% else %}—{% endif %}</td>
+              <td>{{ class_labels.get(p.class_year, p.class_year) }}</td>
+              <td>{{ p.age }}</td>
+              <td>{{ p.height }}</td>
+              <td>{{ p.weight }}</td>
+              <td>{{ p.speed }}</td>
+              <td>{{ p.acceleration }}</td>
+              <td>{{ p.arm_strength }}</td>
+              <td>{{ p.run_block }}</td>
+              <td>{{ p.pass_rush }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="manage-save-row manage-depth-actions">
+      <a href="{{ url_for('depth_chart_edit') }}" class="next-link">Edit depth chart</a>
+      <form action="{{ url_for('depth_chart_generate') }}" method="post" class="depth-regen-form-inline">
+        <input type="hidden" name="next" value="manage_team">
+        <button type="submit" class="team-select-btn depth-regen-btn">Re-generate depth chart</button>
+      </form>
+      <span class="depth-regen-hint">Uses current positions: best player at each position becomes starter.</span>
+    </p>
+  </main>
+
+  {# ===== Player Profile Modal ===== #}
+  <div id="player-modal" class="modal-overlay" hidden>
+    <div class="modal-content modal-player">
+      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+      <div id="player-modal-body">
+        <p class="modal-loading">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  {# ===== Team Profile Modal ===== #}
+  <div id="team-modal" class="modal-overlay" hidden>
+    <div class="modal-content modal-team">
+      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+      <div id="team-modal-body">
+        <p class="modal-loading">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var apiUrl = '{{ url_for("api_depth_chart_save") }}';
+
+      /* ====== Depth chart: collect/save (auto-save on drop and tab switch) ====== */
+      function collectOrders() {
+        var orders = {};
+        document.querySelectorAll('.position-card').forEach(function (card) {
+          var pos = card.getAttribute('data-position');
+          var slotIndex = card.getAttribute('data-slot-index');
+          if (!pos || orders[pos] !== undefined) return;
+          if (pos === 'WR') return;
+          if (slotIndex && parseInt(slotIndex, 10) !== 1) return;
+          var ids = [];
+          card.querySelectorAll('.position-card-row').forEach(function (row) {
+            var id = row.getAttribute('data-player-id');
+            if (id) ids.push(parseInt(id, 10));
+          });
+          orders[pos] = ids;
+        });
+        return orders;
+      }
+      function saveDepthChart() {
+        var orders = collectOrders();
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ orders: orders }),
+          credentials: 'same-origin'
+        }).catch(function () {});
+      }
+      function switchView(viewId) {
+        saveDepthChart();
+        document.querySelectorAll('.manage-view').forEach(function (el) {
+          el.hidden = el.id !== 'view-' + viewId;
+          el.setAttribute('aria-hidden', el.hidden);
+        });
+        document.querySelectorAll('.manage-tab').forEach(function (btn) {
+          var active = btn.getAttribute('data-view') === viewId;
+          btn.classList.toggle('manage-tab--active', active);
+          btn.setAttribute('aria-selected', active);
+        });
+      }
+      document.querySelectorAll('.manage-tab').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          switchView(this.getAttribute('data-view'));
+        });
+      });
+
+      /* ====== Sim Week: block second click until request completes ====== */
+      var simForm = document.getElementById('sim-week-form');
+      var simBtn = document.getElementById('sim-week-btn');
+      if (simForm && simBtn) {
+        simForm.addEventListener('submit', function (e) {
+          if (this.dataset.submitting === 'true') {
+            e.preventDefault();
+            return;
+          }
+          this.dataset.submitting = 'true';
+          simBtn.disabled = true;
+          simBtn.classList.add('sim-btn--loading');
+          simBtn.textContent = 'Simulating…';
+        });
+      }
+
+      /* ====== Drag and drop ====== */
+      var draggedRow = null;
+      var dragSourceCard = null;
+      document.querySelectorAll('.position-card-row').forEach(function (row) {
+        row.addEventListener('dragstart', function (e) {
+          draggedRow = row;
+          dragSourceCard = row.closest('.position-card');
+          e.dataTransfer.setData('text/plain', row.getAttribute('data-player-id'));
+          e.dataTransfer.effectAllowed = 'move';
+          row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', function () {
+          row.classList.remove('dragging');
+          draggedRow = null;
+          dragSourceCard = null;
+        });
+      });
+      document.querySelectorAll('.position-card').forEach(function (card) {
+        card.addEventListener('dragover', function (e) {
+          if (card.getAttribute('data-position') === 'WR') return;
+          var slotIdx = card.getAttribute('data-slot-index');
+          if (slotIdx && parseInt(slotIdx, 10) !== 1) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          card.classList.add('drop-target');
+        });
+        card.addEventListener('dragleave', function () {
+          card.classList.remove('drop-target');
+        });
+        card.addEventListener('drop', function (e) {
+          card.classList.remove('drop-target');
+          if (card.getAttribute('data-position') === 'WR') return;
+          var slotIdx = card.getAttribute('data-slot-index');
+          if (slotIdx && parseInt(slotIdx, 10) !== 1) return;
+          e.preventDefault();
+          if (!draggedRow) return;
+          var list = card.querySelector('.position-card-list');
+          var targetRow = null;
+          var y = e.clientY;
+          list.querySelectorAll('.position-card-row').forEach(function (r) {
+            var rrect = r.getBoundingClientRect();
+            if (y >= rrect.top && y <= rrect.bottom) targetRow = r;
+          });
+          draggedRow.setAttribute('data-position', card.getAttribute('data-position'));
+          if (targetRow && targetRow !== draggedRow) {
+            list.insertBefore(draggedRow, targetRow);
+          } else {
+            list.appendChild(draggedRow);
+          }
+          var pos = card.getAttribute('data-position');
+          var unit = card.getAttribute('data-unit');
+          var allCards = document.querySelectorAll('.position-card[data-position="' + pos + '"][data-unit="' + unit + '"]');
+          var canonical = allCards[0];
+          if (canonical && allCards.length > 1) {
+            if (card !== canonical) {
+              var canList = canonical.querySelector('.position-card-list');
+              while (canList.firstChild) canList.removeChild(canList.firstChild);
+              list.querySelectorAll('.position-card-row').forEach(function (row) { canList.appendChild(row); });
+            }
+            var canonicalRows = canonical.querySelectorAll('.position-card-row');
+            allCards.forEach(function (other) {
+              if (other === canonical) return;
+              var otherSlot = parseInt(other.getAttribute('data-slot-index'), 10);
+              var otherList = other.querySelector('.position-card-list');
+              while (otherList.firstChild) otherList.removeChild(otherList.firstChild);
+              if (otherSlot > 1 && canonicalRows.length >= otherSlot) {
+                var slotRow = canonicalRows[otherSlot - 1];
+                if (slotRow) otherList.appendChild(slotRow.cloneNode(true));
+              } else {
+                canonical.querySelectorAll('.position-card-row').forEach(function (row) {
+                  otherList.appendChild(row.cloneNode(true));
+                });
+              }
+            });
+          }
+          saveDepthChart();
+        });
+      });
+
+      /* ====== Table: View OVR as position + sorting ====== */
+      var table = document.getElementById('roster-table');
+      var viewOvrAsPosition = document.getElementById('view-ovr-as-position');
+      if (table) {
+        var tbody = table.querySelector('tbody');
+        var sortKey = 'overall';
+        var sortDir = 'desc';
+
+        function getDisplayOvr(row) {
+          var viewPos = viewOvrAsPosition ? viewOvrAsPosition.value : '';
+          if (!viewPos) return parseInt(row.getAttribute('data-overall'), 10);
+          var fits = parsePositionFits(row.getAttribute('data-position-fits'));
+          if (!fits) return parseInt(row.getAttribute('data-overall'), 10);
+          var v = fits[viewPos];
+          return (v != null && v !== '') ? parseInt(v, 10) : parseInt(row.getAttribute('data-overall'), 10);
+        }
+
+        function getDisplayPot(row) {
+          var viewPos = viewOvrAsPosition ? viewOvrAsPosition.value : '';
+          if (!viewPos) return parseInt(row.getAttribute('data-potential'), 10);
+          var pots = parsePositionFits(row.getAttribute('data-position-potentials'));
+          if (!pots) return parseInt(row.getAttribute('data-potential'), 10);
+          var v = pots[viewPos];
+          return (v != null && v !== '') ? parseInt(v, 10) : parseInt(row.getAttribute('data-potential'), 10);
+        }
+
+        function parsePositionFits(raw) {
+          if (!raw) return null;
+          try {
+            var s = raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+            return JSON.parse(s);
+          } catch (e) { return null; }
+        }
+
+        function applyViewOvrAsPosition() {
+          var viewPos = viewOvrAsPosition ? viewOvrAsPosition.value : '';
+          tbody.querySelectorAll('tr').forEach(function (row) {
+            var ovrCell = row.querySelector('.roster-ovr-cell');
+            if (ovrCell) {
+              var fallback = ovrCell.getAttribute('data-overall');
+              var ovr;
+              if (!viewPos) {
+                ovr = fallback;
+              } else {
+                var fitsRaw = row.getAttribute('data-position-fits');
+                var fits = parsePositionFits(fitsRaw);
+                if (!fits) {
+                  ovr = fallback;
+                } else {
+                  var v = fits[viewPos];
+                  ovr = (v != null && v !== '') ? String(v) : fallback;
+                }
+              }
+              ovrCell.textContent = ovr != null ? ovr : '';
+            }
+            var potCell = row.querySelector('.roster-pot-cell');
+            if (potCell) {
+              var potFallback = potCell.getAttribute('data-potential');
+              var pot;
+              if (!viewPos) {
+                pot = potFallback;
+              } else {
+                var potsRaw = row.getAttribute('data-position-potentials');
+                var pots = parsePositionFits(potsRaw);
+                if (!pots) {
+                  pot = potFallback;
+                } else {
+                  var pv = pots[viewPos];
+                  pot = (pv != null && pv !== '') ? String(pv) : potFallback;
+                }
+              }
+              potCell.textContent = pot != null ? pot : '';
+            }
+          });
+        }
+
+        if (viewOvrAsPosition) {
+          viewOvrAsPosition.addEventListener('change', applyViewOvrAsPosition);
+        }
+
+        table.querySelectorAll('thead th').forEach(function (th) {
+          th.addEventListener('click', function () {
+            var key = this.getAttribute('data-sort');
+            if (!key) return;
+            if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            else { sortKey = key; sortDir = 'asc'; }
+            table.querySelectorAll('thead th .sort-arrow').forEach(function (s) { s.textContent = ''; });
+            var arrow = this.querySelector('.sort-arrow');
+            if (arrow) arrow.textContent = sortDir === 'asc' ? ' \u2191' : ' \u2193';
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+              var av, bv;
+              if (key === 'overall') {
+                av = getDisplayOvr(a);
+                bv = getDisplayOvr(b);
+                return sortDir === 'asc' ? av - bv : bv - av;
+              }
+              if (key === 'potential') {
+                av = getDisplayPot(a);
+                bv = getDisplayPot(b);
+                return sortDir === 'asc' ? av - bv : bv - av;
+              }
+              if (key === 'starter') {
+                av = a.getAttribute('data-starter') === 'true' ? 1 : 0;
+                bv = b.getAttribute('data-starter') === 'true' ? 1 : 0;
+                return sortDir === 'asc' ? av - bv : bv - av;
+              }
+              av = a.getAttribute('data-' + key);
+              bv = b.getAttribute('data-' + key);
+              var an = parseInt(av, 10);
+              var bn = parseInt(bv, 10);
+              if (!isNaN(an) && !isNaN(bn)) return sortDir === 'asc' ? an - bn : bn - an;
+              return sortDir === 'asc' ? String(av).localeCompare(bv) : String(bv).localeCompare(av);
+            });
+            rows.forEach(function (r) { tbody.appendChild(r); });
+          });
+        });
+
+        var defaultSortTh = table.querySelector('th[data-sort="overall"]');
+        if (defaultSortTh) {
+          sortKey = 'overall';
+          sortDir = 'desc';
+          defaultSortTh.querySelector('.sort-arrow').textContent = ' \u2193';
+        }
+        applyViewOvrAsPosition();
+      }
+
+      /* ====== Practice development table: sortable (name, position, attribute, last week, season) ====== */
+      var devTable = document.getElementById('practice-development-table');
+      if (devTable) {
+        var devTbody = devTable.querySelector('tbody');
+        var devSortKey = 'change_season';
+        var devSortDir = 'desc';
+        var devStringKeys = ['name', 'position', 'attribute'];
+        devTable.querySelectorAll('thead th').forEach(function (th) {
+          th.addEventListener('click', function () {
+            var key = this.getAttribute('data-sort');
+            if (!key) return;
+            if (devSortKey === key) devSortDir = devSortDir === 'asc' ? 'desc' : 'asc';
+            else { devSortKey = key; devSortDir = devStringKeys.indexOf(key) >= 0 ? 'asc' : 'desc'; }
+            devTable.querySelectorAll('thead th .sort-arrow').forEach(function (s) { s.textContent = ''; });
+            var arrow = this.querySelector('.sort-arrow');
+            if (arrow) arrow.textContent = devSortDir === 'asc' ? ' \u2191' : ' \u2193';
+            var rows = Array.from(devTbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+              var av = a.getAttribute('data-' + devSortKey);
+              var bv = b.getAttribute('data-' + devSortKey);
+              var an = parseInt(av, 10);
+              var bn = parseInt(bv, 10);
+              if (!isNaN(an) && !isNaN(bn)) return devSortDir === 'asc' ? an - bn : bn - an;
+              return devSortDir === 'asc' ? String(av || '').localeCompare(bv || '') : String(bv || '').localeCompare(av || '');
+            });
+            rows.forEach(function (r) { devTbody.appendChild(r); });
+          });
+        });
+        var devDefaultTh = devTable.querySelector('th[data-sort="change_season"]');
+        if (devDefaultTh) {
+          devDefaultTh.querySelector('.sort-arrow').textContent = ' \u2193';
+        }
+      }
+
+      /* ====== Modal helpers ====== */
+      function openModal(id) {
+        var m = document.getElementById(id);
+        m.hidden = false;
+        setTimeout(function(){ m.classList.add('modal-visible'); }, 10);
+      }
+      function closeModal(id) {
+        var m = document.getElementById(id);
+        m.classList.remove('modal-visible');
+        setTimeout(function(){ m.hidden = true; }, 200);
+      }
+      document.querySelectorAll('.modal-overlay').forEach(function(m) {
+        m.addEventListener('click', function(e) {
+          if (e.target === m) closeModal(m.id);
+        });
+        m.querySelector('.modal-close').addEventListener('click', function() {
+          closeModal(m.id);
+        });
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.modal-overlay:not([hidden])').forEach(function(m) {
+            closeModal(m.id);
+          });
+        }
+      });
+
+      /* ====== Attribute labels for display ====== */
+      var ATTR_LABELS = {
+        speed: 'Speed', acceleration: 'Accel', lateral_quickness: 'Agility',
+        vision: 'Vision', lower_body_strength: 'Low Str', upper_body_strength: 'Up Str',
+        arm_strength: 'Arm Str', kick_power: 'Kick Pwr', run_block: 'Run Blk',
+        pass_rush: 'Pass Rush', pass_protection: 'Pass Pro', scrambling: 'Scramble',
+        short_accuracy: 'Short Acc', mid_accuracy: 'Mid Acc', deep_accuracy: 'Deep Acc',
+        throw_under_pressure: 'TUP', ball_security: 'Ball Sec', catching: 'Catch',
+        route_running: 'Route', tackling: 'Tackle', coverage: 'Cover',
+        block_shedding: 'Blk Shed', pursuit: 'Pursuit', kick_accuracy: 'Kick Acc',
+        vertical_jump: 'Vert', broad_jump: 'Broad', familiarity: 'Familiarity'
+      };
+
+      function buildDevelopmentHTML(devData) {
+        if (!devData || devData.error) return '';
+        var html = '<h3 class="player-modal-section-title">Development</h3>';
+        html += '<div class="player-dev-section">';
+        if (devData.key_attributes && devData.key_attributes.length > 0) {
+          html += '<p class="player-dev-hint">Current vs cap (key attributes for position).</p>';
+          html += '<ul class="player-dev-attrs">';
+          devData.key_attributes.forEach(function(item) {
+            var label = ATTR_LABELS[item.attribute] || item.attribute;
+            html += '<li><span class="player-dev-label">' + label + '</span> <span class="player-dev-val">' + item.current + ' <span class="player-dev-cap">(' + item.cap + ')</span></span></li>';
+          });
+          html += '</ul>';
+        }
+        if (devData.recent_changes && devData.recent_changes.length > 0) {
+          html += '<p class="player-dev-hint">Recent growth (last 8 weeks).</p>';
+          html += '<ul class="player-dev-changes">';
+          devData.recent_changes.forEach(function(item) {
+            var label = ATTR_LABELS[item.attribute] || item.attribute;
+            var sign = item.change > 0 ? '+' : '';
+            html += '<li><span class="player-dev-label">' + label + '</span> <span class="player-dev-change">' + sign + item.change + '</span></li>';
+          });
+          html += '</ul>';
+        }
+        if ((!devData.key_attributes || devData.key_attributes.length === 0) && (!devData.recent_changes || devData.recent_changes.length === 0)) {
+          html += '<p class="player-dev-hint">No development data yet. Development runs when you sim a week.</p>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      /* ====== Radar Chart (SVG) ====== */
+      function buildRadarSVG(attrs, fitData, selectedPos) {
+        // attrs: {speed:80, ...}, fitData: {position_fits:{QB:70,...}, current_position:'CB', current_overall:80}
+        // Show 8 most relevant attributes for the selected position and current position
+        var keys = ['speed','acceleration','lateral_quickness','vision','lower_body_strength',
+                     'upper_body_strength','arm_strength','kick_power','run_block','pass_rush',
+                     'pass_protection','scrambling'];
+        // Filter to attributes that are > 0
+        keys = keys.filter(function(k) { return attrs[k] > 0; });
+        if (keys.length < 3) keys = ['speed','acceleration','vision','lower_body_strength','upper_body_strength','arm_strength'];
+        // Limit to 8 for readability
+        if (keys.length > 8) {
+          keys.sort(function(a,b) { return attrs[b] - attrs[a]; });
+          keys = keys.slice(0, 8);
+        }
+
+        var n = keys.length;
+        var cx = 150, cy = 150, r = 110;
+        var angleStep = (2 * Math.PI) / n;
+
+        // Build SVG
+        var svg = '<svg viewBox="0 0 300 300" class="radar-svg">';
+        // Grid rings
+        for (var ring = 1; ring <= 4; ring++) {
+          var rr = (r * ring) / 4;
+          var pts = [];
+          for (var i = 0; i < n; i++) {
+            var a = -Math.PI / 2 + i * angleStep;
+            pts.push((cx + rr * Math.cos(a)).toFixed(1) + ',' + (cy + rr * Math.sin(a)).toFixed(1));
+          }
+          svg += '<polygon points="' + pts.join(' ') + '" class="radar-grid"/>';
+        }
+        // Axes
+        for (var i = 0; i < n; i++) {
+          var a = -Math.PI / 2 + i * angleStep;
+          var x2 = cx + r * Math.cos(a);
+          var y2 = cy + r * Math.sin(a);
+          svg += '<line x1="' + cx + '" y1="' + cy + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" class="radar-axis"/>';
+        }
+        // Data polygon
+        var dataPts = [];
+        for (var i = 0; i < n; i++) {
+          var val = Math.min(99, Math.max(0, attrs[keys[i]]));
+          var rVal = (r * val) / 99;
+          var a = -Math.PI / 2 + i * angleStep;
+          dataPts.push((cx + rVal * Math.cos(a)).toFixed(1) + ',' + (cy + rVal * Math.sin(a)).toFixed(1));
+        }
+        svg += '<polygon points="' + dataPts.join(' ') + '" class="radar-data"/>';
+        // Data dots + labels
+        for (var i = 0; i < n; i++) {
+          var val = Math.min(99, Math.max(0, attrs[keys[i]]));
+          var rVal = (r * val) / 99;
+          var a = -Math.PI / 2 + i * angleStep;
+          var dx = cx + rVal * Math.cos(a);
+          var dy = cy + rVal * Math.sin(a);
+          svg += '<circle cx="' + dx.toFixed(1) + '" cy="' + dy.toFixed(1) + '" r="3" class="radar-dot"/>';
+          // Label
+          var lx = cx + (r + 18) * Math.cos(a);
+          var ly = cy + (r + 18) * Math.sin(a);
+          var anchor = 'middle';
+          if (Math.cos(a) < -0.3) anchor = 'end';
+          else if (Math.cos(a) > 0.3) anchor = 'start';
+          svg += '<text x="' + lx.toFixed(1) + '" y="' + (ly + 4).toFixed(1) + '" text-anchor="' + anchor + '" class="radar-label">' + (ATTR_LABELS[keys[i]] || keys[i]) + '</text>';
+          svg += '<text x="' + lx.toFixed(1) + '" y="' + (ly + 15).toFixed(1) + '" text-anchor="' + anchor + '" class="radar-value">' + val + '</text>';
+        }
+        svg += '</svg>';
+        return svg;
+      }
+
+      /* ====== Position Fit Bar Chart (stacked: OVR + potential) ====== */
+      function buildPositionFitHTML(fitData, selectedPos) {
+        var fits = fitData.position_fits || {};
+        var pots = fitData.position_potentials || {};
+        var currentPos = fitData.current_position;
+        // Sort positions by fit descending
+        var sorted = Object.keys(fits).map(function(p){ return {pos:p, ovr:fits[p], pot:pots[p] != null ? pots[p] : fits[p]}; });
+        sorted.sort(function(a,b){ return b.ovr - a.ovr; });
+
+        var html = '<div class="pos-fit-bars">';
+        sorted.forEach(function(item) {
+          var isCurrent = item.pos === currentPos;
+          var isSelected = item.pos === selectedPos;
+          var ovr = Math.round(item.ovr);
+          var pot = Math.round(Math.max(item.ovr, item.pot));
+          var ovrPct = Math.min(100, Math.round((ovr / 99) * 100));
+          var potPct = Math.min(100 - ovrPct, Math.round(((pot - ovr) / 99) * 100));
+          var cls = 'pos-fit-bar-row';
+          if (isCurrent) cls += ' pos-fit-current';
+          if (isSelected) cls += ' pos-fit-selected';
+          html += '<div class="' + cls + '" data-pos="' + item.pos + '">';
+          html += '<span class="pos-fit-label">' + item.pos + '</span>';
+          html += '<div class="pos-fit-track">';
+          html += '<div class="pos-fit-fill" style="width:' + ovrPct + '%"></div>';
+          if (potPct > 0) html += '<div class="pos-fit-fill-pot" style="width:' + potPct + '%"></div>';
+          html += '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+        return html;
+      }
+
+      /* ====== Player Profile Modal ====== */
+      function showPlayerModal(playerId) {
+        var body = document.getElementById('player-modal-body');
+        body.innerHTML = '<p class="modal-loading">Loading...</p>';
+        openModal('player-modal');
+
+        // Fetch player profile + position fit + development in parallel
+        Promise.all([
+          fetch('/api/player/' + playerId, { credentials: 'same-origin' }).then(function(r){ return r.json(); }),
+          fetch('/api/player/' + playerId + '/position-fit', { credentials: 'same-origin' }).then(function(r){ return r.json(); }),
+          fetch('/api/player/' + playerId + '/development', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).catch(function(){ return {}; })
+        ]).then(function(results) {
+          var data = results[0];
+          var fitData = results[1];
+          var devData = results[2];
+          if (data.error) { body.innerHTML = '<p class="modal-loading">' + data.error + '</p>'; return; }
+          var p = data.player;
+          var ss = data.season_stats;
+
+          var html = '';
+          // Choose a single definition of "overall": the position-specific projected overall
+          var displayOvr = (fitData && typeof fitData.current_overall === 'number')
+            ? fitData.current_overall
+            : p.overall;
+          // Header
+          html += '<div class="player-modal-header">';
+          html += '<div class="player-modal-name-block">';
+          html += '<h2 class="player-modal-name">' + p.name + '</h2>';
+          html += '<div class="player-modal-meta">';
+          html += '<span class="player-modal-pos" id="player-modal-pos-badge">' + p.position + '</span>';
+          html += '<span class="player-modal-class">' + p.class_label + '</span>';
+          html += '<span class="player-modal-team">' + p.team_name + '</span>';
+          html += '</div>';
+          html += '</div>';
+          html += '<div class="player-modal-ovr-block">';
+          html += '<div class="player-modal-ovr">' + displayOvr + '</div>';
+          html += '<div class="player-modal-ovr-label">OVR</div>';
+          html += '</div>';
+          html += '<div class="player-modal-pot-block">';
+          html += '<div class="player-modal-pot">' + p.potential + '</div>';
+          html += '<div class="player-modal-pot-label">POT</div>';
+          html += '</div>';
+          html += '</div>';
+
+          // Physical info
+          html += '<div class="player-modal-phys">';
+          html += '<div class="phys-item"><span class="phys-label">Age</span><span class="phys-val">' + p.age + '</span></div>';
+          html += '<div class="phys-item"><span class="phys-label">Height</span><span class="phys-val">' + Math.floor(p.height/12) + "'" + (p.height%12) + '"</span></div>';
+          html += '<div class="phys-item"><span class="phys-label">Weight</span><span class="phys-val">' + p.weight + ' lbs</span></div>';
+          html += '</div>';
+
+          // Change position
+          html += '<div class="player-modal-change-position">';
+          html += '<h3 class="player-modal-section-title">Change position</h3>';
+          html += '<p class="player-modal-pos-hint">Move this player to a different position. The depth chart updates automatically.</p>';
+          html += '<div class="player-modal-pos-row">';
+          html += '<label for="player-modal-pos-select">Position:</label>';
+          html += '<select id="player-modal-pos-select">';
+          var positions = Object.keys(fitData.position_fits || {}).sort();
+          positions.forEach(function(pos) {
+            html += '<option value="' + pos + '"' + (pos === p.position ? ' selected' : '') + '>' + pos + '</option>';
+          });
+          html += '</select>';
+          html += '</div>';
+          html += '<p id="player-modal-pos-message" class="player-modal-pos-message" aria-live="polite"></p>';
+          html += '</div>';
+
+          // Two-column layout: radar chart + position fit
+          html += '<div class="player-modal-columns">';
+
+          // Left: Radar chart
+          html += '<div class="player-modal-col">';
+          html += '<h3 class="player-modal-section-title">Attribute Ratings</h3>';
+          var radarAttrs = fitData.attributes || {};
+          html += '<div id="radar-container">';
+          html += buildRadarSVG(radarAttrs, fitData, p.position);
+          html += '</div>';
+          html += '</div>';
+
+          // Right: Position fit
+          html += '<div class="player-modal-col">';
+          html += '<h3 class="player-modal-section-title">Position Fit</h3>';
+          html += '<p class="pos-fit-hint">Projected OVR and potential at each position based on this player\'s attributes. Current position highlighted.</p>';
+          html += '<div id="pos-fit-container">';
+          html += buildPositionFitHTML(fitData, null);
+          html += '</div>';
+          html += '</div>';
+
+          html += '</div>'; // end columns
+
+          // Development (current vs cap, recent changes)
+          html += buildDevelopmentHTML(devData);
+
+          // Season stats (if any games played)
+          if (ss && ss.games_played > 0) {
+            html += '<h3 class="player-modal-section-title">Season Stats (' + ss.games_played + ' games)</h3>';
+            html += '<div class="player-season-stats">';
+            // Show relevant stat lines based on position
+            if (ss.pass_attempts > 0) {
+              var compPct = ss.pass_attempts > 0 ? (100 * ss.pass_completions / ss.pass_attempts).toFixed(1) : '0.0';
+              var qbr = 0;
+              if (ss.pass_attempts > 0) {
+                var a2 = Math.min(Math.max(((ss.pass_completions/ss.pass_attempts)-.3)*5, 0), 2.375);
+                var b2 = Math.min(Math.max(((ss.pass_yards/ss.pass_attempts)-3)*.25, 0), 2.375);
+                var c2 = Math.min(Math.max((ss.pass_touchdowns/ss.pass_attempts)*20, 0), 2.375);
+                var d2 = Math.min(Math.max(2.375-((ss.interceptions_thrown/ss.pass_attempts)*25), 0), 2.375);
+                qbr = ((a2+b2+c2+d2)/6*100).toFixed(1);
+              }
+              html += '<table class="player-stat-table"><thead><tr><th>Comp</th><th>Att</th><th>Pct</th><th>Yds</th><th>TD</th><th>INT</th><th>QBR</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.pass_completions + '</td><td>' + ss.pass_attempts + '</td><td>' + compPct + '%</td><td>' + ss.pass_yards + '</td><td>' + ss.pass_touchdowns + '</td><td>' + ss.interceptions_thrown + '</td><td>' + qbr + '</td></tr></tbody></table>';
+            }
+            if (ss.rush_attempts > 0) {
+              var ypc = (ss.rush_yards / ss.rush_attempts).toFixed(1);
+              html += '<table class="player-stat-table"><thead><tr><th>Rush</th><th>Yds</th><th>YPC</th><th>TD</th><th>Fum</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.rush_attempts + '</td><td>' + ss.rush_yards + '</td><td>' + ypc + '</td><td>' + ss.rush_touchdowns + '</td><td>' + ss.fumbles_lost + '</td></tr></tbody></table>';
+            }
+            if (ss.targets > 0) {
+              html += '<table class="player-stat-table"><thead><tr><th>Tgt</th><th>Rec</th><th>Yds</th><th>TD</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.targets + '</td><td>' + ss.receptions + '</td><td>' + ss.receiving_yards + '</td><td>' + ss.receiving_touchdowns + '</td></tr></tbody></table>';
+            }
+            if (ss.tackles > 0 || ss.sacks > 0 || ss.interceptions > 0) {
+              html += '<table class="player-stat-table"><thead><tr><th>Tkl</th><th>Sck</th><th>TFL</th><th>INT</th><th>PD</th><th>FF</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.tackles + '</td><td>' + ss.sacks + '</td><td>' + ss.tackles_for_loss + '</td><td>' + ss.interceptions + '</td><td>' + ss.pass_deflections + '</td><td>' + ss.forced_fumbles + '</td></tr></tbody></table>';
+            }
+            if (ss.fg_attempts > 0 || ss.xp_attempts > 0) {
+              html += '<table class="player-stat-table"><thead><tr><th>FG</th><th>FGA</th><th>XP</th><th>XPA</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.fg_made + '</td><td>' + ss.fg_attempts + '</td><td>' + ss.xp_made + '</td><td>' + ss.xp_attempts + '</td></tr></tbody></table>';
+            }
+            if (ss.punts > 0) {
+              var avg = (ss.punt_yards / ss.punts).toFixed(1);
+              html += '<table class="player-stat-table"><thead><tr><th>Punts</th><th>Yds</th><th>Avg</th></tr></thead>';
+              html += '<tbody><tr><td>' + ss.punts + '</td><td>' + ss.punt_yards + '</td><td>' + avg + '</td></tr></tbody></table>';
+            }
+            html += '</div>';
+          }
+
+          // Prior years season stats (Year, Level, GP, and position-relevant stats)
+          var priorStats = data.prior_season_stats || [];
+          if (priorStats.length > 0) {
+            html += '<h3 class="player-modal-section-title">Prior Years</h3>';
+            html += '<div class="player-season-stats player-prior-years">';
+            html += '<table class="player-stat-table player-prior-years-table"><thead><tr><th>Year</th><th>Level</th><th>GP</th>';
+            var pos = p.position;
+            var priorHeaders = [];
+            var priorStatKeys = [];
+            if (pos === 'QB') {
+              priorHeaders = ['Comp', 'Att', 'Yds', 'TD', 'INT'];
+              priorStatKeys = ['pass_completions', 'pass_attempts', 'pass_yards', 'pass_touchdowns', 'interceptions_thrown'];
+            } else if (pos === 'RB' || pos === 'FB') {
+              priorHeaders = ['Rush', 'Yds', 'YPC', 'TD', 'Fum'];
+              priorStatKeys = ['rush_attempts', 'rush_yards', 'ypc', 'rush_touchdowns', 'fumbles_lost'];
+            } else if (pos === 'WR' || pos === 'TE') {
+              priorHeaders = ['Tgt', 'Rec', 'Yds', 'TD'];
+              priorStatKeys = ['targets', 'receptions', 'receiving_yards', 'receiving_touchdowns'];
+            } else if (pos === 'OL' || pos === 'DL' || pos === 'LB' || pos === 'CB' || pos === 'S') {
+              priorHeaders = ['Tkl', 'Sck', 'TFL', 'INT', 'PD', 'FF'];
+              priorStatKeys = ['tackles', 'sacks', 'tackles_for_loss', 'interceptions', 'pass_deflections', 'forced_fumbles'];
+            } else if (pos === 'K') {
+              priorHeaders = ['FG', 'FGA', 'XP', 'XPA'];
+              priorStatKeys = ['fg_made', 'fg_attempts', 'xp_made', 'xp_attempts'];
+            } else if (pos === 'P') {
+              priorHeaders = ['Punts', 'Yds', 'Avg'];
+              priorStatKeys = ['punts', 'punt_yards', 'punt_avg'];
+            } else {
+              priorHeaders = ['Pass Yds', 'Rush Yds', 'Rec', 'Tkl'];
+              priorStatKeys = ['pass_yards', 'rush_yards', 'receptions', 'tackles'];
+            }
+            priorHeaders.forEach(function(h) { html += '<th>' + h + '</th>'; });
+            html += '</tr></thead><tbody>';
+            priorStats.forEach(function(ps) {
+              var levelLabel = (ps.level || '').replace(/_/g, ' ');
+              if (levelLabel) levelLabel = levelLabel.charAt(0).toUpperCase() + levelLabel.slice(1);
+              html += '<tr><td>' + ps.year + '</td><td>' + levelLabel + '</td><td>' + ps.games_played + '</td>';
+              priorStatKeys.forEach(function(key) {
+                var val = ps[key];
+                if (key === 'ypc') {
+                  val = ps.rush_attempts > 0 ? (ps.rush_yards / ps.rush_attempts).toFixed(1) : '0';
+                } else if (key === 'punt_avg') {
+                  val = ps.punts > 0 ? (ps.punt_yards / ps.punts).toFixed(1) : '0';
+                } else if (val === undefined || val === null) val = '0';
+                html += '<td>' + val + '</td>';
+              });
+              html += '</tr>';
+            });
+            html += '</tbody></table>';
+            html += '</div>';
+          }
+
+          body.innerHTML = html;
+
+          var posSelect = document.getElementById('player-modal-pos-select');
+          var posMessage = document.getElementById('player-modal-pos-message');
+          var currentPos = p.position;
+          if (posSelect && posMessage) {
+            posSelect.addEventListener('change', function() {
+              var newPos = posSelect.value;
+              if (newPos === currentPos) return;
+              posMessage.textContent = '';
+              posMessage.className = 'player-modal-pos-message';
+              fetch('/api/player/' + playerId + '/position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ position: newPos }),
+                credentials: 'same-origin'
+              }).then(function(r) { return r.json(); }).then(function(data) {
+                if (data.error) {
+                  posMessage.textContent = data.error;
+                  posMessage.className = 'player-modal-pos-message player-modal-pos-message--error';
+                  return;
+                }
+                currentPos = newPos;
+                posMessage.textContent = 'Position updated. Reloading to show updated depth chart…';
+                posMessage.className = 'player-modal-pos-message player-modal-pos-message--success';
+                // Reload page so roster/depth chart view reflects the change (they are server-rendered)
+                closeModal('player-modal');
+                window.location.reload();
+              }).catch(function() {
+                posMessage.textContent = 'Failed to update position.';
+                posMessage.className = 'player-modal-pos-message player-modal-pos-message--error';
+              });
+            });
+          }
+        }).catch(function(err) {
+          body.innerHTML = '<p class="modal-loading">Error loading player data.</p>';
+        });
+      }
+
+      /* ====== Team Profile Modal ====== */
+      function showTeamModal(teamId) {
+        var body = document.getElementById('team-modal-body');
+        body.innerHTML = '<p class="modal-loading">Loading...</p>';
+        openModal('team-modal');
+
+        fetch('/api/team/' + teamId + '/profile', { credentials: 'same-origin' })
+          .then(function(r){ return r.json(); })
+          .then(function(data) {
+            if (data.error) { body.innerHTML = '<p class="modal-loading">' + data.error + '</p>'; return; }
+            var t = data.team;
+            var rec = data.record;
+            var div = data.division;
+
+            var html = '';
+            html += '<div class="team-modal-header">';
+            html += '<h2 class="team-modal-name">' + t.name + '</h2>';
+            html += '<div class="team-modal-meta">';
+            if (div) html += '<span>' + div.name + '</span>';
+            html += '<span class="team-modal-record">' + rec.wins + '-' + rec.losses + (rec.ties > 0 ? '-' + rec.ties : '') + '</span>';
+            html += '</div>';
+            html += '</div>';
+
+            html += '<div class="team-modal-info">';
+            html += '<div class="team-modal-stat"><span class="tms-label">Prestige</span><span class="tms-val">' + t.prestige + '</span></div>';
+            html += '<div class="team-modal-stat"><span class="tms-label">Facilities</span><span class="tms-val">' + t.facility_grade + '</span></div>';
+            html += '</div>';
+
+            // Top players
+            if (data.top_players && data.top_players.length > 0) {
+              html += '<h3 class="player-modal-section-title">Top Players</h3>';
+              html += '<table class="player-stat-table"><thead><tr><th>Name</th><th>Pos</th><th>OVR</th><th>Pot</th><th>Class</th></tr></thead><tbody>';
+              data.top_players.forEach(function(p) {
+                html += '<tr>';
+                html += '<td><a href="#" class="player-link" data-player-id="' + p.id + '">' + p.name + '</a></td>';
+                html += '<td>' + p.position + '</td>';
+                html += '<td>' + p.overall + '</td>';
+                html += '<td>' + p.potential + '</td>';
+                html += '<td>' + (p.class_label || p.class_year) + '</td>';
+                html += '</tr>';
+              });
+              html += '</tbody></table>';
+            }
+
+            // Recent games
+            if (data.recent_games && data.recent_games.length > 0) {
+              html += '<h3 class="player-modal-section-title">Recent Results</h3>';
+              html += '<table class="player-stat-table"><thead><tr><th>Wk</th><th>Opp</th><th>Result</th></tr></thead><tbody>';
+              data.recent_games.forEach(function(g) {
+                var resClass = 'result-' + g.result;
+                html += '<tr>';
+                html += '<td>' + g.week + '</td>';
+                html += '<td>' + (g.is_home ? 'vs ' : '@ ') + g.opponent + '</td>';
+                html += '<td><span class="result-link ' + resClass + '">' + g.result + ' ' + g.my_score + '-' + g.opp_score + '</span></td>';
+                html += '</tr>';
+              });
+              html += '</tbody></table>';
+            }
+
+            body.innerHTML = html;
+
+            // Bind player links inside team modal
+            body.querySelectorAll('.player-link').forEach(function(link) {
+              link.addEventListener('click', function(e) {
+                e.preventDefault();
+                closeModal('team-modal');
+                setTimeout(function() {
+                  showPlayerModal(parseInt(link.getAttribute('data-player-id'), 10));
+                }, 250);
+              });
+            });
+          })
+          .catch(function() {
+            body.innerHTML = '<p class="modal-loading">Error loading team data.</p>';
+          });
+      }
+
+      /* ====== Bind player links ====== */
+      document.addEventListener('click', function(e) {
+        var link = e.target.closest('.player-link');
+        if (link) {
+          e.preventDefault();
+          e.stopPropagation();
+          var pid = parseInt(link.getAttribute('data-player-id'), 10);
+          if (pid) showPlayerModal(pid);
+          return;
+        }
+        var tlink = e.target.closest('.team-link');
+        if (tlink) {
+          e.preventDefault();
+          e.stopPropagation();
+          var tid = parseInt(tlink.getAttribute('data-team-id'), 10);
+          if (tid) showTeamModal(tid);
+          return;
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>

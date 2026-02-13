@@ -1,0 +1,12 @@
+# Conda environment for GMCareer. Does not touch base.
+# Create once: conda env create -f environment.yml
+# Activate:   conda activate gmgame
+name: gmgame
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+    - -r requirements.txt
