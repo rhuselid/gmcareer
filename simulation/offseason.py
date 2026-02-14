@@ -21,6 +21,12 @@ from db.operations import (
     depth_chart_is_valid,
     get_missing_positions_for_team,
     generate_depth_chart_best_by_position,
+    get_recruiting_offers,
+    get_draft_order,
+    get_current_draft_pick,
+    get_eligible_draft_players,
+    record_draft_pick,
+    get_draft_picks_made,
     OFFSEASON_STEPS,
 )
 from simulation.development import run_development_for_team
@@ -95,64 +101,170 @@ def _compute_player_interest(
     return out
 
 
-def run_recruiting(conn: sqlite3.Connection, season: int) -> dict[str, Any]:
-    """
-    HS seniors -> college using a player interest system. Each player has
-    interest in schools (prestige + NIL + randomness). Colleges get
-    RECRUITS_PER_COLLEGE slots; when a college picks, it takes the best
-    available player who has that school in their top RECRUIT_TOP_SCHOOLS.
-    Unrecruited seniors retire.
-    """
+def _compute_player_interest_scores(
+    seniors: list[dict],
+    college_teams: list[dict],
+    rng: random.Random,
+) -> dict[int, list[tuple[int, float]]]:
+    """player_id -> list of (college_id, score) descending by score. For UI display."""
+    out: dict[int, list[tuple[int, float]]] = {}
+    for p in seniors:
+        pid = p["id"]
+        scores: list[tuple[float, int]] = []
+        for ct in college_teams:
+            prestige = (ct.get("prestige") or 0) / 99.0
+            nil = (ct.get("nil_budget") or 0) / 5000.0
+            noise = rng.gauss(0, 0.08)
+            interest = prestige * 0.5 + min(1.0, nil) * 0.3 + noise
+            scores.append((interest, ct["id"]))
+        scores.sort(key=lambda x: -x[0])
+        out[pid] = [(cid, sc) for sc, cid in scores]
+    return out
+
+
+def get_recruits_with_interest(
+    conn: sqlite3.Connection, season: int, college_team_id: int
+) -> list[dict[str, Any]]:
+    """Return HS seniors with interest_rank and interest_score toward the given college (for recruiting screen)."""
     seniors = get_players_at_level_with_class(conn, "high_school", 4)
     if not seniors:
-        return {"recruited": 0, "retired": 0, "colleges": 0}
+        return []
+    college_teams = get_teams_in_division_order(conn, "college")
+    rng = _get_rng(season, "recruiting")
+    interest_scores = _compute_player_interest_scores(seniors, college_teams, rng)
+    result = []
+    for p in seniors:
+        pid = p["id"]
+        scores_list = interest_scores.get(pid, [])
+        rank = 0
+        score = 0.0
+        for i, (cid, sc) in enumerate(scores_list):
+            if cid == college_team_id:
+                rank = i + 1
+                score = round(sc * 100)  # 0-100 scale for display
+                break
+        result.append({
+            **p,
+            "interest_rank": rank,
+            "interest_score": score,
+        })
+    result.sort(key=lambda x: (-x["interest_score"], -(x.get("potential") or 0)))
+    return result
+
+
+def run_recruiting(
+    conn: sqlite3.Connection, season: int, human_team_id: int | None = None
+) -> dict[str, Any]:
+    """
+    HS seniors -> college. Players sign with the school they are most interested in that gave them an offer.
+    If human_team_id is set, that team's offers come from recruiting_offers table; other colleges use AI (best available).
+    Build all offers, then for each player with offers assign to the offering school they rank highest.
+    """
+    from collections import defaultdict
+
+    seniors = get_players_at_level_with_class(conn, "high_school", 4)
+    if not seniors:
+        return {"recruited": 0, "retired": 0, "colleges": 0, "signed": [], "retired_list": [], "walk_ons_added": 0}
+    hs_team_names = {t["id"]: t["name"] for t in get_teams_in_division_order(conn, "high_school")}
     college_teams = get_teams_in_division_order(conn, "college")
     college_teams.sort(key=lambda x: -(x.get("prestige") or 0))
+    college_names = {t["id"]: t["name"] for t in college_teams}
     rng = _get_rng(season, "recruiting")
     player_top_schools = _compute_player_interest(seniors, college_teams, rng)
-    used: set[int] = set()
-    recruited = 0
+    seniors_by_id = {p["id"]: p for p in seniors}
+
+    # Build offers: player_id -> list of team_ids that offered
+    offers_by_player: dict[int, list[int]] = defaultdict(list)
+    human_offers: set[int] = set()
+    if human_team_id is not None:
+        human_offers = set(get_recruiting_offers(conn, season, human_team_id))
+        for pid in human_offers:
+            offers_by_player[pid].append(human_team_id)
+
+    offered_by_college: dict[int, set[int]] = defaultdict(set)
+    for pid in human_offers:
+        offered_by_college[human_team_id].add(pid)
+
     for ct in college_teams:
         cid = ct["id"]
+        if cid == human_team_id:
+            continue  # already added human offers
         for _ in range(RECRUITS_PER_COLLEGE):
-            # Best available player who has this college in their top N
             best = None
             best_pot = -1
             for p in seniors:
-                if p["id"] in used:
+                pid = p["id"]
+                if pid in offered_by_college.get(cid, set()):
                     continue
-                top = player_top_schools.get(p["id"], [])
+                top = player_top_schools.get(pid, [])
                 if cid not in top[:RECRUIT_TOP_SCHOOLS]:
                     continue
                 if p.get("potential", 0) > best_pot:
                     best_pot = p["potential"]
                     best = p
             if best is None:
-                # No interested player; take best available
                 for p in seniors:
-                    if p["id"] in used:
+                    pid = p["id"]
+                    if pid in offered_by_college.get(cid, set()):
                         continue
                     if p.get("potential", 0) > best_pot:
                         best_pot = p["potential"]
                         best = p
             if best is None:
                 break
-            used.add(best["id"])
-            transfer_player_to_team(conn, best["id"], cid, new_class_year=1, commit=False)
-            recruited += 1
+            best_id = best["id"]
+            offers_by_player[best_id].append(cid)
+            offered_by_college[cid].add(best_id)
+
+    # Resolve: each player signs with the offering school they rank highest
+    used: set[int] = set()
+    signed: list[dict[str, Any]] = []
+    for p in seniors:
+        pid = p["id"]
+        offerers = offers_by_player.get(pid, [])
+        if not offerers:
+            continue
+        top_list = player_top_schools.get(pid, [])
+        best_cid = None
+        for cid in top_list:
+            if cid in offerers:
+                best_cid = cid
+                break
+        if best_cid is None:
+            best_cid = offerers[0]
+        used.add(pid)
+        from_tid = p.get("team_id")
+        signed.append({
+            "player_id": pid,
+            "player_name": p.get("name", f"Player #{pid}"),
+            "from_team_id": from_tid,
+            "to_team_id": best_cid,
+            "from_team_name": hs_team_names.get(from_tid, ""),
+            "to_team_name": college_names.get(best_cid, ""),
+        })
+        transfer_player_to_team(conn, pid, best_cid, new_class_year=1, commit=False)
     conn.commit()
-    retired = 0
+
+    retired_list: list[dict[str, Any]] = []
     for p in seniors:
         if p["id"] in used:
             continue
+        from_tid = p.get("team_id")
+        retired_list.append({
+            "player_id": p["id"],
+            "player_name": p.get("name", f"Player #{p['id']}"),
+            "from_team_id": from_tid,
+            "from_team_name": hs_team_names.get(from_tid, ""),
+        })
         delete_player(conn, p["id"], commit=False)
-        retired += 1
     conn.commit()
     walk_ons_added = _fill_roster_for_level(conn, "high_school", season)
     return {
-        "recruited": recruited,
-        "retired": retired,
+        "recruited": len(signed),
+        "retired": len(retired_list),
         "colleges": len(college_teams),
+        "signed": signed,
+        "retired_list": retired_list,
         "walk_ons_added": walk_ons_added,
     }
 
@@ -180,27 +292,107 @@ def _fill_roster_for_level(conn: sqlite3.Connection, level: str, season: int) ->
     return total_added
 
 
+def _pick_best_available(eligible: list[dict], team_id: int) -> dict | None:
+    """AI logic: choose best available by potential, then overall. Returns player dict or None."""
+    if not eligible:
+        return None
+    return max(eligible, key=lambda p: (p.get("potential") or 0, p.get("overall") or 0))
+
+
+def run_ai_draft_pick(conn: sqlite3.Connection, season: int) -> dict[str, Any] | None:
+    """Run one draft pick for the team on the clock (AI: best available by potential). Returns pick info or None if draft complete."""
+    current = get_current_draft_pick(conn, season)
+    if current is None:
+        return None
+    pick_number, team_id = current
+    eligible = get_eligible_draft_players(conn, season)
+    best = _pick_best_available(eligible, team_id)
+    if best is None:
+        return None
+    college_names = {t["id"]: t["name"] for t in get_teams_in_division_order(conn, "college")}
+    pro_names = {t["id"]: t["name"] for t in get_teams_in_division_order(conn, "professional")}
+    record_draft_pick(conn, season, pick_number, team_id, best["id"])
+    return {
+        "pick_number": pick_number,
+        "team_id": team_id,
+        "team_name": pro_names.get(team_id, ""),
+        "player_id": best["id"],
+        "player_name": best.get("name", f"Player #{best['id']}"),
+        "position": best.get("position", ""),
+        "overall": best.get("overall", 0),
+        "potential": best.get("potential", 0),
+        "from_team_name": college_names.get(best.get("team_id"), ""),
+    }
+
+
+def run_ai_draft_until_user_pick(
+    conn: sqlite3.Connection, season: int, user_team_id: int
+) -> list[dict[str, Any]]:
+    """Run AI draft picks until it's the user's turn or draft is complete. Returns list of picks made."""
+    made = []
+    while True:
+        current = get_current_draft_pick(conn, season)
+        if current is None:
+            break
+        _pick_number, team_id = current
+        if team_id == user_team_id:
+            break
+        pick_info = run_ai_draft_pick(conn, season)
+        if pick_info is None:
+            break
+        made.append(pick_info)
+    return made
+
+
 def run_draft(conn: sqlite3.Connection, season: int) -> dict[str, Any]:
     """
-    College seniors -> NFL. Draft order: worst record first (by wins, then point diff).
-    Each NFL team gets DRAFT_ROUNDS pick(s). Best available senior by potential. Rest retire.
+    College seniors -> NFL. Full auto-draft (used when not in interactive draft step).
+    Draft order: worst record first. Each team gets DRAFT_ROUNDS pick(s). Best available by potential. Rest retire.
     """
+    # If interactive draft already ran (draft_picks exist for this season), retire undrafted and fill rosters only
+    picks_made = get_draft_picks_made(conn, season)
+    order = get_draft_order(conn, season)
+    total_picks = len(order) * DRAFT_ROUNDS
+    if len(picks_made) >= total_picks:
+        # Draft already done (e.g. by draft step); just retire remaining seniors and fill rosters
+        seniors = get_players_at_level_with_class(conn, "college", 4)
+        college_names = {t["id"]: t["name"] for t in get_teams_in_division_order(conn, "college")}
+        picked_ids = {r["player_id"] for r in picks_made}
+        retired_list = []
+        for p in seniors:
+            if p["id"] in picked_ids:
+                continue
+            retired_list.append({
+                "player_id": p["id"],
+                "player_name": p.get("name", f"Player #{p['id']}"),
+                "from_team_id": p.get("team_id"),
+                "from_team_name": college_names.get(p.get("team_id"), ""),
+            })
+            delete_player(conn, p["id"], commit=False)
+        conn.commit()
+        walk_ons_added = _fill_roster_for_level(conn, "college", season)
+        return {
+            "drafted": len(picks_made),
+            "retired": len(retired_list),
+            "teams": len(order),
+            "drafted_list": [],
+            "retired_list": retired_list,
+            "walk_ons_added": walk_ons_added,
+        }
+
     seniors = get_players_at_level_with_class(conn, "college", 4)
     if not seniors:
-        return {"drafted": 0, "retired": 0, "teams": 0}
+        return {"drafted": 0, "retired": 0, "teams": 0, "drafted_list": [], "retired_list": [], "walk_ons_added": 0}
+    college_teams = get_teams_in_division_order(conn, "college")
+    college_names = {t["id"]: t["name"] for t in college_teams}
     pro_teams = get_teams_in_division_order(conn, "professional")
-    # Draft order: worst record first (fewest wins, then most losses)
-    records = []
-    for t in pro_teams:
-        rec = get_team_record_for_season(conn, t["id"], season)
-        records.append((t["id"], t["name"], rec["wins"], rec["losses"]))
-    records.sort(key=lambda x: (x[2], -x[3]))  # fewer wins first; then more losses first
-    draft_order = [r[0] for r in records]
+    pro_names = {t["id"]: t["name"] for t in pro_teams}
+    draft_order = get_draft_order(conn, season)
     picked = set()
-    drafted = 0
-    total_picks = len(draft_order) * DRAFT_ROUNDS
-    for pick_num in range(total_picks):
-        team_id = draft_order[pick_num % len(draft_order)]
+    drafted_list: list[dict[str, Any]] = []
+    for pick_num in range(min(total_picks, len(draft_order))):
+        team_id = draft_order[pick_num]
+        to_name = pro_names.get(team_id, "")
         best = None
         best_pot = -1
         for p in seniors:
@@ -212,21 +404,37 @@ def run_draft(conn: sqlite3.Connection, season: int) -> dict[str, Any]:
         if best is None:
             break
         picked.add(best["id"])
+        from_tid = best.get("team_id")
+        drafted_list.append({
+            "player_id": best["id"],
+            "player_name": best.get("name", f"Player #{best['id']}"),
+            "from_team_id": from_tid,
+            "to_team_id": team_id,
+            "from_team_name": college_names.get(from_tid, ""),
+            "to_team_name": to_name,
+        })
         transfer_player_to_team(conn, best["id"], team_id, commit=False)
-        drafted += 1
     conn.commit()
-    retired = 0
+    retired_list: list[dict[str, Any]] = []
     for p in seniors:
         if p["id"] in picked:
             continue
+        from_tid = p.get("team_id")
+        retired_list.append({
+            "player_id": p["id"],
+            "player_name": p.get("name", f"Player #{p['id']}"),
+            "from_team_id": from_tid,
+            "from_team_name": college_names.get(from_tid, ""),
+        })
         delete_player(conn, p["id"], commit=False)
-        retired += 1
     conn.commit()
     walk_ons_added = _fill_roster_for_level(conn, "college", season)
     return {
-        "drafted": drafted,
-        "retired": retired,
+        "drafted": len(drafted_list),
+        "retired": len(retired_list),
         "teams": len(pro_teams),
+        "drafted_list": drafted_list,
+        "retired_list": retired_list,
         "walk_ons_added": walk_ons_added,
     }
 

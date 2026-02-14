@@ -43,15 +43,29 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
             CREATE TABLE IF NOT EXISTS managers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
+                god_mode INTEGER NOT NULL DEFAULT 0,
                 scouting INTEGER NOT NULL,
                 developing_potential INTEGER NOT NULL,
                 unlocking_potential INTEGER NOT NULL,
                 convincing_players INTEGER NOT NULL,
                 in_game_management INTEGER NOT NULL,
-                prestige INTEGER NOT NULL DEFAULT 50,
+                prestige INTEGER NOT NULL DEFAULT 5,
                 unspent_skill_points INTEGER NOT NULL DEFAULT 0,
                 current_team_id INTEGER,
                 created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS manager_season_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manager_id INTEGER NOT NULL REFERENCES managers(id),
+                season INTEGER NOT NULL,
+                team_id INTEGER NOT NULL REFERENCES teams(id),
+                team_name TEXT NOT NULL,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                expected_place INTEGER NOT NULL,
+                actual_place INTEGER NOT NULL,
+                prestige_after INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS divisions (
@@ -256,10 +270,27 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
                 attribute TEXT NOT NULL,
                 change INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS recruiting_offers (
+                season INTEGER NOT NULL,
+                team_id INTEGER NOT NULL REFERENCES teams(id),
+                player_id INTEGER NOT NULL REFERENCES players(id),
+                PRIMARY KEY (season, team_id, player_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS draft_picks (
+                season INTEGER NOT NULL,
+                pick_number INTEGER NOT NULL,
+                team_id INTEGER NOT NULL REFERENCES teams(id),
+                player_id INTEGER NOT NULL REFERENCES players(id),
+                PRIMARY KEY (season, pick_number)
+            );
         """)
         conn.commit()
         _migrate_season_state_offseason(conn)
         _migrate_managers_prestige_skill_points(conn)
+        _migrate_recruiting_draft_tables(conn)
+        _migrate_manager_season_history(conn)
     finally:
         if close:
             conn.close()
@@ -294,15 +325,58 @@ def _migrate_managers_prestige_skill_points(conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in rows}
         if "prestige" not in cols:
             conn.execute(
-                "ALTER TABLE managers ADD COLUMN prestige INTEGER NOT NULL DEFAULT 50"
+                "ALTER TABLE managers ADD COLUMN prestige INTEGER NOT NULL DEFAULT 5"
             )
         if "unspent_skill_points" not in cols:
             conn.execute(
                 "ALTER TABLE managers ADD COLUMN unspent_skill_points INTEGER NOT NULL DEFAULT 0"
             )
+        if "god_mode" not in cols:
+            conn.execute(
+                "ALTER TABLE managers ADD COLUMN god_mode INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
     except sqlite3.OperationalError:
         pass
+
+
+def _migrate_recruiting_draft_tables(conn: sqlite3.Connection) -> None:
+    """Create recruiting_offers and draft_picks tables if missing (existing saves)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS recruiting_offers (
+            season INTEGER NOT NULL,
+            team_id INTEGER NOT NULL REFERENCES teams(id),
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            PRIMARY KEY (season, team_id, player_id)
+        );
+        CREATE TABLE IF NOT EXISTS draft_picks (
+            season INTEGER NOT NULL,
+            pick_number INTEGER NOT NULL,
+            team_id INTEGER NOT NULL REFERENCES teams(id),
+            player_id INTEGER NOT NULL REFERENCES players(id),
+            PRIMARY KEY (season, pick_number)
+        );
+    """)
+    conn.commit()
+
+
+def _migrate_manager_season_history(conn: sqlite3.Connection) -> None:
+    """Create manager_season_history table if missing (existing saves)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS manager_season_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            manager_id INTEGER NOT NULL REFERENCES managers(id),
+            season INTEGER NOT NULL,
+            team_id INTEGER NOT NULL REFERENCES teams(id),
+            team_name TEXT NOT NULL,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            expected_place INTEGER NOT NULL,
+            actual_place INTEGER NOT NULL,
+            prestige_after INTEGER NOT NULL
+        )
+    """)
+    conn.commit()
 
 
 def reset_for_new_manager() -> None:

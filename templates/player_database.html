@@ -11,9 +11,11 @@
     <h1>Player Database</h1>
     <p class="teams-intro">All players at every level (high school, college, NFL). Add conditions and join them with <strong>AND</strong> or <strong>OR</strong> (left‑to‑right).</p>
     <p class="nav-links">
-      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <a href="{{ url_for('player_page') }}" class="next-link">Player</a>
       <span class="nav-sep">|</span>
       <a href="{{ url_for('manage_team') }}" class="next-link">Team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
       <span class="nav-sep">|</span>
       <strong>Player Database</strong>
     </p>

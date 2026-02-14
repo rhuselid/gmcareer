@@ -13,6 +13,8 @@ from .offseason import (
     run_training_camps,
     run_offseason_development,
     run_offseason_complete,
+    get_recruits_with_interest,
+    run_ai_draft_until_user_pick,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "run_training_camps",
     "run_offseason_development",
     "run_offseason_complete",
+    "get_recruits_with_interest",
+    "run_ai_draft_until_user_pick",
 ]

@@ -9,8 +9,10 @@
 <body class="teams-page">
   <main class="teams-container manage-team-container">
     <h1>Offseason — Season {{ season }}</h1>
-    <p class="teams-intro">Complete each step to advance to the new season.</p>
+    <p class="teams-intro">Review the season, spend skill points, then run all offseason simulations in one step and start the new season.</p>
     <p class="nav-links">
+      <a href="{{ url_for('player_page') }}" class="next-link">Player</a>
+      <span class="nav-sep">|</span>
       {% if can_change_team %}
       <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
       <span class="nav-sep">|</span>
@@ -87,48 +89,134 @@
       </section>
       {% elif step == 'team_change' %}
       <p class="offseason-desc">You may change to a different team before the new season. Use the <strong>Change team</strong> link above, then continue when ready.</p>
-      {% elif step == 'freshmen' %}
-      <p class="offseason-desc">A new class of high school freshmen will be added to every HS program.</p>
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <button type="submit" class="sim-btn">Continue to skill points</button>
+      </form>
       {% elif step == 'recruiting' %}
-      <p class="offseason-desc">High school seniors will be recruited by college programs. The best players sign; others retire.</p>
+      <p class="offseason-desc">Offer scholarships to HS seniors. Each player signs with the school they're most interested in that offered them. You can offer up to 8 recruits.</p>
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form" id="recruiting-form">
+        <input type="hidden" name="save_offers" value="1">
+        <table class="offseason-players-table sortable-table" id="recruiting-table">
+          <thead>
+            <tr>
+              <th><button type="button" class="sort-header" data-sort="name">Name</button></th>
+              <th><button type="button" class="sort-header" data-sort="position">Pos</button></th>
+              <th><button type="button" class="sort-header" data-sort="overall">OVR</button></th>
+              <th><button type="button" class="sort-header" data-sort="potential">POT</button></th>
+              <th><button type="button" class="sort-header" data-sort="interest_score">Interest</button></th>
+              <th>Offer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recruiting_recruits %}
+            <tr data-name="{{ (r.name or '')|e }}" data-position="{{ r.position or '' }}" data-overall="{{ r.overall or 0 }}" data-potential="{{ r.potential or 0 }}" data-interest="{{ r.interest_score or 0 }}">
+              <td><a href="#" class="player-link" data-player-id="{{ r.id }}">{{ r.name if r.name else 'Player #' ~ r.id|string }}</a></td>
+              <td>{{ r.position }}</td>
+              <td>{{ r.overall }}</td>
+              <td>{{ r.potential }}</td>
+              <td>{% if r.interest_rank %}#{{ r.interest_rank }} ({{ r.interest_score }}){% else %}—{% endif %}</td>
+              <td><input type="checkbox" name="offer" value="{{ r.id }}" {% if r.id in recruiting_offers %}checked{% endif %} aria-label="Offer to {{ r.name or r.id }}"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="offseason-form-actions">
+          <button type="submit" class="sim-btn">Save offers</button>
+        </div>
+      </form>
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <input type="hidden" name="complete_recruiting" value="1">
+        <button type="submit" class="sim-btn">Complete recruiting</button>
+      </form>
       {% elif step == 'draft' %}
-      <p class="offseason-desc">College seniors enter the NFL Draft. The best are selected by pro teams; others retire.</p>
-      {% elif step == 'training_camp' %}
-      <p class="offseason-desc">High school teams hold training camps. Your players develop more during this period.</p>
-      {% if level == 'high_school' and offense_practice_options and defense_practice_options %}
-      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form offseason-training-form">
-        <div class="practice-focus-row">
-          <label for="offense_focus">Offense focus</label>
-          <select name="offense_focus" id="offense_focus">
-            {% for key, label in offense_practice_options %}
-            <option value="{{ key }}" {% if training_camp_plan and training_camp_plan.offense_focus == key %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="practice-focus-row">
-          <label for="defense_focus">Defense focus</label>
-          <select name="defense_focus" id="defense_focus">
-            {% for key, label in defense_practice_options %}
-            <option value="{{ key }}" {% if training_camp_plan and training_camp_plan.defense_focus == key %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="submit" class="sim-btn">Run training camp &amp; continue</button>
+      <p class="offseason-desc">NFL Draft: select a player when it's your turn, or sim until your next pick. Click column headers to sort the board.</p>
+      {% if draft_current_pick %}
+      <p class="offseason-desc"><strong>Pick {{ draft_current_pick[0] + 1 }}</strong> — {% if draft_order_team_names.get(draft_current_pick[1]) %}{{ draft_order_team_names[draft_current_pick[1]] }}{% else %}Team {{ draft_current_pick[1] }}{% endif %} is on the clock.</p>
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <input type="hidden" name="sim_until_my_pick" value="1">
+        <button type="submit" class="sim-btn">Sim Until Your Next Pick</button>
       </form>
       {% endif %}
-      {% elif step == 'development' %}
-      <p class="offseason-desc">All HS and college players undergo offseason development (higher gains than in-season).</p>
+      <table class="offseason-players-table sortable-table" id="draft-table">
+        <thead>
+          <tr>
+            <th><button type="button" class="sort-header" data-sort="name">Name</button></th>
+            <th><button type="button" class="sort-header" data-sort="position">Pos</button></th>
+            <th><button type="button" class="sort-header" data-sort="overall">OVR</button></th>
+            <th><button type="button" class="sort-header" data-sort="potential">POT</button></th>
+            <th><button type="button" class="sort-header" data-sort="team">School</button></th>
+            <th>Draft</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in draft_eligible %}
+          <tr data-name="{{ (p.name or '')|e }}" data-position="{{ p.position or '' }}" data-overall="{{ p.overall or 0 }}" data-potential="{{ p.potential or 0 }}" data-team="{{ (p.team_name or '')|e }}">
+            <td><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name if p.name else 'Player #' ~ p.id|string }}</a></td>
+            <td>{{ p.position }}</td>
+            <td>{{ p.overall }}</td>
+            <td>{{ p.potential }}</td>
+            <td>{{ p.team_name or '—' }}</td>
+            <td>
+              {% if draft_current_pick and team and draft_current_pick[1] == team.id %}
+              <form method="post" action="{{ url_for('offseason_continue') }}" class="draft-player-form" style="display:inline">
+                <input type="hidden" name="draft_player" value="1">
+                <input type="hidden" name="player_id" value="{{ p.id }}">
+                <button type="submit" class="sim-btn sim-btn-sm">Draft</button>
+              </form>
+              {% else %}
+              —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if draft_picks_made %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Picks made</h3>
+        <ul class="offseason-retired-list">
+          {% for pick in draft_picks_made %}
+          <li>Pick {{ pick.pick_number + 1 }}: {{ draft_order_team_names.get(pick.team_id, 'Team') }} — {{ pick.player_name or ('Player #' ~ pick.player_id|string) }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if not draft_current_pick and draft_order %}
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <input type="hidden" name="complete_draft" value="1">
+        <button type="submit" class="sim-btn">Complete draft</button>
+      </form>
+      {% endif %}
+      {% elif step == 'offseason_simulations' %}
+      {% if not offseason_simulations_done %}
+      <p class="offseason-desc">Run all offseason simulations in one go: <strong>incoming freshmen</strong> (new HS class), <strong>recruiting</strong> (HS seniors → college), <strong>NFL Draft</strong> (college seniors → pro), <strong>training camps</strong> (HS development), and <strong>offseason development</strong> for all. Results will be shown below.</p>
+      <div class="sim-form-with-progress">
+        <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form" id="offseason-sim-form">
+          <input type="hidden" name="run_simulations" value="1">
+          <button type="submit" class="sim-btn" id="offseason-sim-btn">Run offseason simulations</button>
+        </form>
+        <div class="sim-progress-wrap" id="offseason-sim-progress" aria-hidden="true">
+          <div class="sim-progress-bar" id="offseason-sim-progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Running offseason simulations"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="offseason-desc">Offseason simulations are complete. Review the results below, then start the new season when ready.</p>
+      <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
+        <input type="hidden" name="start_new_season" value="1">
+        <button type="submit" class="sim-btn">Start new season</button>
+      </form>
+      {% endif %}
       {% elif step == 'complete' %}
       <p class="offseason-desc">Class years advance, the new schedule is set, and Season {{ season + 1 }} begins.</p>
       {% else %}
       <p class="offseason-desc">Continue to process this step.</p>
       {% endif %}
 
-      {% if step != 'season_summary' and step != 'skill_points' and not (step == 'training_camp' and level == 'high_school' and offense_practice_options and defense_practice_options) %}
+      {% if step == 'team_change' %}
+      {# Continue button already above #}
+      {% elif step != 'season_summary' and step != 'skill_points' and step != 'offseason_simulations' and step != 'complete' %}
       <form method="post" action="{{ url_for('offseason_continue') }}" class="offseason-form">
-        <button type="submit" class="sim-btn">
-          {% if step == 'team_change' %}Continue to skill points{% elif step == 'complete' %}Start new season{% else %}Run &amp; continue{% endif %}
-        </button>
+        <button type="submit" class="sim-btn">{% if step == 'complete' %}Start new season{% else %}Continue{% endif %}</button>
       </form>
       {% endif %}
     </div>
@@ -137,58 +225,309 @@
     <p class="offseason-team">Current team: <strong>{{ team.name }}</strong>{% if division %} ({{ division.name }}){% endif %}</p>
     {% endif %}
 
-    {% if offseason_display_result and offseason_display_result.step == 'freshmen' %}
-    <section class="offseason-new-players" aria-labelledby="new-players-title">
-      <h2 id="new-players-title" class="season-card-title">Incoming freshmen</h2>
-      <p class="offseason-desc">{{ offseason_display_result.players_added }} new players across {{ offseason_display_result.teams }} high schools.</p>
-      {% if new_players_my_team %}
-      <h3 class="offseason-new-players-sub">Your team — {{ new_players_my_team|length }} new freshmen</h3>
-      <table class="offseason-players-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Pos</th>
-            <th>OVR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in new_players_my_team %}
-          <tr>
-            <td>{{ p.name if p.name else 'Player #' ~ p.id|string }}</td>
-            <td>{{ p.position }}</td>
-            <td>{{ p.overall }}</td>
-          </tr>
+    {% if step == 'offseason_simulations' and offseason_simulations_done and offseason_display_result %}
+    <section class="offseason-results" aria-labelledby="offseason-results-title">
+      <h2 id="offseason-results-title" class="season-card-title">Offseason results</h2>
+
+      {# Incoming freshmen (HS only) #}
+      {% set freshmen_data = offseason_display_result.get('freshmen') or {} %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Incoming freshmen</h3>
+        <p class="offseason-desc">{{ freshmen_data.get('players_added', 0) }} new players across {{ freshmen_data.get('teams', 0) }} high schools.</p>
+        {% if new_players_my_team %}
+        <p class="offseason-desc"><strong>Your team — {{ new_players_my_team|length }} new freshmen</strong> (these players appear on your roster as Fr)</p>
+        <table class="offseason-players-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Pos</th>
+              <th>OVR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in new_players_my_team %}
+            <tr>
+              <td><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name if p.name else 'Player #' ~ p.id|string }}</a> <span class="badge badge-freshman">New Fr</span></td>
+              <td>{{ p.position }}</td>
+              <td>{{ p.overall }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% elif level == 'high_school' %}
+        <p class="offseason-desc">No new freshmen were added to your team this offseason.</p>
+        {% else %}
+        <p class="offseason-desc">You are not at a high school; freshmen are added to HS programs only.</p>
+        {% endif %}
+      </div>
+
+      {# Recruiting: your graduating HS seniors — who signed / who retired #}
+      {% if level == 'high_school' %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Your graduating seniors — Recruiting</h3>
+        {% if recruiting_my_signed %}
+        <p class="offseason-desc"><strong>Signed to play in college ({{ recruiting_my_signed|length }})</strong></p>
+        <table class="offseason-players-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Signed with</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recruiting_my_signed %}
+            <tr>
+              <td><a href="#" class="player-link" data-player-id="{{ r.player_id }}">{{ r.player_name }}</a></td>
+              <td>{{ r.to_team_name or 'College' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if recruiting_my_retired %}
+        <p class="offseason-desc"><strong>Did not sign / retired ({{ recruiting_my_retired|length }})</strong></p>
+        <ul class="offseason-retired-list">
+          {% for r in recruiting_my_retired %}
+          <li>{{ r.player_name }}</li>
           {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <p class="offseason-desc">You are not at a high school, so no new freshmen were added to your current team.</p>
+        </ul>
+        {% endif %}
+        {% if not recruiting_my_signed and not recruiting_my_retired %}
+        <p class="offseason-desc">No seniors graduated from your team this year.</p>
+        {% endif %}
+      </div>
       {% endif %}
-      {% if new_players_other %}
-      <h3 class="offseason-new-players-sub">Other schools (sample)</h3>
-      <table class="offseason-players-table">
-        <thead>
-          <tr>
-            <th>Team</th>
-            <th>Name</th>
-            <th>Pos</th>
-            <th>OVR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in new_players_other %}
-          <tr>
-            <td>{{ p.team_name or '' }}</td>
-            <td>{{ p.name if p.name else 'Player #' ~ p.id|string }}</td>
-            <td>{{ p.position }}</td>
-            <td>{{ p.overall }}</td>
-          </tr>
+
+      {# Draft: your graduating college seniors — who was drafted / who retired #}
+      {% if level == 'college' %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Your graduating seniors — NFL Draft</h3>
+        {% if draft_my_drafted %}
+        <p class="offseason-desc"><strong>Drafted to NFL ({{ draft_my_drafted|length }})</strong></p>
+        <table class="offseason-players-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Drafted by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in draft_my_drafted %}
+            <tr>
+              <td><a href="#" class="player-link" data-player-id="{{ d.player_id }}">{{ d.player_name }}</a></td>
+              <td>{{ d.to_team_name or 'NFL' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if draft_my_retired %}
+        <p class="offseason-desc"><strong>Went undrafted / retired ({{ draft_my_retired|length }})</strong></p>
+        <ul class="offseason-retired-list">
+          {% for d in draft_my_retired %}
+          <li>{{ d.player_name }}</li>
           {% endfor %}
-        </tbody>
-      </table>
+        </ul>
+        {% endif %}
+        {% if not draft_my_drafted and not draft_my_retired %}
+        <p class="offseason-desc">No seniors graduated from your team this year.</p>
+        {% endif %}
+      </div>
       {% endif %}
+
+      {# League-wide recruiting/draft summary when user isn't at that level #}
+      {% set rec_data = offseason_display_result.get('recruiting') or {} %}
+      {% if level != 'high_school' and (rec_data.get('recruited') or rec_data.get('retired')) %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Recruiting (league)</h3>
+        <p class="offseason-desc">{{ rec_data.get('recruited', 0) }} HS seniors signed with colleges; {{ rec_data.get('retired', 0) }} retired.</p>
+      </div>
+      {% endif %}
+      {% set draft_data = offseason_display_result.get('draft') or {} %}
+      {% if level != 'college' and (draft_data.get('drafted') or draft_data.get('retired')) %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">NFL Draft (league)</h3>
+        <p class="offseason-desc">{{ draft_data.get('drafted', 0) }} college seniors drafted; {{ draft_data.get('retired', 0) }} retired.</p>
+      </div>
+      {% endif %}
+
+      {# Training camp & development summary #}
+      {% set tc_data = offseason_display_result.get('training_camp') or {} %}
+      {% set dev_data = offseason_display_result.get('development') or {} %}
+      <div class="offseason-result-block">
+        <h3 class="offseason-new-players-sub">Training camps &amp; development</h3>
+        <p class="offseason-desc">Training camps: {{ tc_data.get('teams', 0) }} HS teams; total +{{ tc_data.get('total_gain', 0) }} attribute gains. Offseason development: {{ dev_data.get('teams', 0) }} teams; total +{{ dev_data.get('total_gain', 0) }} gains.</p>
+      </div>
     </section>
     {% endif %}
   </main>
+
+  <div id="player-modal" class="modal-overlay" hidden>
+    <div class="modal-content modal-player">
+      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+      <div id="player-modal-body">
+        <p class="modal-loading">Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('offseason-sim-form');
+      var btn = document.getElementById('offseason-sim-btn');
+      var progressWrap = document.getElementById('offseason-sim-progress');
+      var progressBar = document.getElementById('offseason-sim-progress-bar');
+      if (!form || !btn || !progressWrap || !progressBar) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (form.dataset.submitting === 'true') return;
+        form.dataset.submitting = 'true';
+        btn.disabled = true;
+        btn.classList.add('sim-btn--loading');
+        btn.textContent = 'Running…';
+        progressWrap.classList.add('is-visible');
+        progressWrap.setAttribute('aria-hidden', 'false');
+        progressBar.classList.add('sim-progress-bar--indeterminate');
+        progressBar.style.width = '';
+        progressBar.setAttribute('aria-valuenow', '0');
+        progressBar.setAttribute('aria-valuetext', 'Running…');
+        var formData = new FormData(form);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', form.action);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.onload = function () {
+          progressBar.classList.remove('sim-progress-bar--indeterminate');
+          progressBar.style.width = '100%';
+          progressBar.setAttribute('aria-valuenow', '100');
+          var go = function (url) {
+            if (url) window.location.href = url;
+            else window.location.reload();
+          };
+          if (xhr.status === 302) {
+            var loc = xhr.getResponseHeader('Location');
+            if (loc) {
+              loc = loc.indexOf('http') === 0 ? loc : (window.location.origin + (loc.charAt(0) === '/' ? loc : '/' + loc));
+              go(loc);
+            } else {
+              go(null);
+            }
+            return;
+          }
+          if (xhr.status === 200 && xhr.responseURL && xhr.responseURL !== form.action) {
+            go(xhr.responseURL);
+            return;
+          }
+          if (xhr.status === 200) {
+            go(null);
+            return;
+          }
+          form.dataset.submitting = 'false';
+          btn.disabled = false;
+          btn.classList.remove('sim-btn--loading');
+          btn.textContent = 'Run offseason simulations';
+          progressWrap.classList.remove('is-visible');
+          go(form.action);
+        };
+        xhr.onerror = function () {
+          progressBar.classList.remove('sim-progress-bar--indeterminate');
+          form.dataset.submitting = 'false';
+          btn.disabled = false;
+          btn.classList.remove('sim-btn--loading');
+          btn.textContent = 'Run offseason simulations';
+          progressWrap.classList.remove('is-visible');
+          window.location.reload();
+        };
+        xhr.send(formData);
+      });
+    })();
+
+    (function () {
+      var modal = document.getElementById('player-modal');
+      var body = document.getElementById('player-modal-body');
+      var closeBtn = modal && modal.querySelector('.modal-close');
+      function openModal() {
+        if (modal) {
+          modal.hidden = false;
+          modal.setAttribute('aria-hidden', 'false');
+        }
+      }
+      function closeModal() {
+        if (modal) {
+          modal.hidden = true;
+          modal.setAttribute('aria-hidden', 'true');
+        }
+      }
+      if (closeBtn) closeBtn.addEventListener('click', closeModal);
+      if (modal) modal.addEventListener('click', function (e) {
+        if (e.target === modal) closeModal();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal && !modal.hidden) closeModal();
+      });
+
+      document.addEventListener('click', function (e) {
+        var link = e.target.closest('.player-link');
+        if (!link) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var pid = parseInt(link.getAttribute('data-player-id'), 10);
+        if (!pid) return;
+        if (body) body.innerHTML = '<p class="modal-loading">Loading...</p>';
+        openModal();
+        fetch('/api/player/' + pid, { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) {
+              body.innerHTML = '<p class="modal-loading">' + (data.error || 'Player not found') + '</p>';
+              return;
+            }
+            var p = data.player;
+            var classLabel = (p && p.class_label) ? p.class_label : (p && p.class_year ? ['Fr','So','Jr','Sr'][p.class_year - 1] : '');
+            var html = '<div class="player-modal-header">';
+            html += '<div class="player-modal-name-block"><h2 class="player-modal-name">' + (p.name || 'Player #' + p.id) + '</h2>';
+            html += '<div class="player-modal-meta"><span class="player-modal-pos">' + (p.position || '') + '</span>';
+            html += '<span class="player-modal-class">' + classLabel + '</span>';
+            html += '<span class="player-modal-team">' + (p.team_name || '') + '</span></div></div>';
+            html += '<div class="player-modal-ovr-block"><div class="player-modal-ovr">' + (p.overall || 0) + '</div><div class="player-modal-ovr-label">OVR</div></div>';
+            html += '<div class="player-modal-pot-block"><div class="player-modal-pot">' + (p.potential || 0) + '</div><div class="player-modal-pot-label">POT</div></div></div>';
+            html += '<div class="player-modal-phys">';
+            html += '<div class="phys-item"><span class="phys-label">Age</span><span class="phys-val">' + (p.age || '') + '</span></div>';
+            html += '<div class="phys-item"><span class="phys-label">Height</span><span class="phys-val">' + (p.height ? Math.floor(p.height/12) + "'" + (p.height%12) + '"' : '') + '</span></div>';
+            html += '<div class="phys-item"><span class="phys-label">Weight</span><span class="phys-val">' + (p.weight ? p.weight + ' lbs' : '') + '</span></div></div>';
+            body.innerHTML = html;
+          })
+          .catch(function () {
+            body.innerHTML = '<p class="modal-loading">Error loading player.</p>';
+          });
+      });
+    })();
+
+    (function () {
+      document.querySelectorAll('.sortable-table').forEach(function (table) {
+        var headers = table.querySelectorAll('.sort-header');
+        headers.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var key = btn.getAttribute('data-sort');
+            var tbody = table.querySelector('tbody');
+            if (!tbody || !key) return;
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+            var numericKeys = ['overall', 'potential', 'interest_score', 'interest'];
+            var isNum = numericKeys.indexOf(key) !== -1;
+            rows.sort(function (a, b) {
+              var va = a.getAttribute('data-' + key);
+              var vb = b.getAttribute('data-' + key);
+              if (isNum) {
+                var na = parseFloat(va) || 0;
+                var nb = parseFloat(vb) || 0;
+                return nb - na;
+              }
+              return (va || '').localeCompare(vb || '');
+            });
+            rows.forEach(function (r) { tbody.appendChild(r); });
+          });
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -9,19 +9,31 @@
 <body class="teams-page">
   <main class="teams-container">
     <h1>{% if offseason %}Select Your Team{% else %}Select Your High School Team{% endif %}</h1>
-    <p class="teams-intro">Choose a team to manage. {% if offseason %}During offseason you may switch to any level (HS, College, NFL). {% endif %}Filter by division and browse rosters (sorted by overall).</p>
+    <p class="teams-intro">Choose a team to manage. {% if offseason %}During offseason you may switch to <strong>High School</strong>, <strong>College</strong>, or <strong>NFL</strong>. {% endif %}Filter by division and browse rosters (sorted by overall).</p>
     <p class="nav-links">
+      <a href="{{ url_for('player_page') }}" class="next-link">Player</a>
+      <span class="nav-sep">|</span>
       <a href="{{ url_for('manage_team') }}" class="next-link">Team</a>
       <span class="nav-sep">|</span>
       <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
     </p>
 
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <ul class="flash-messages" aria-live="polite">
+      {% for category, message in messages %}
+      <li class="flash-message {% if category == 'error' %}flash-message--error{% endif %}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
     <div class="region-filter">
       <label for="region-select">{% if offseason %}Division{% else %}Region{% endif %}</label>
       <select id="region-select" class="region-select" aria-label="Filter by division">
-        <option value="">All</option>
+        <option value="">{% if offseason %}All (HS, College, NFL){% else %}All{% endif %}</option>
         {% for r in regions %}
-        <option value="{{ r.name }}">{{ r.name }}{% if offseason and level_labels and r.level %} ({{ level_labels.get(r.level, r.level) }}){% endif %}</option>
+        <option value="{{ r.name }}">{{ r.name }}{% if offseason and level_labels and r.level %} — {{ level_labels.get(r.level, r.level) }}{% endif %}</option>
         {% endfor %}
       </select>
     </div>

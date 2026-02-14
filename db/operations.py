@@ -31,21 +31,22 @@ _PLAYER_SELECT_COLS_PREFIXED = ", ".join(
 )
 
 
-def insert_manager(conn: sqlite3.Connection, manager: Manager) -> int:
-    """Insert manager and return id."""
+def insert_manager(conn: sqlite3.Connection, manager: Manager, *, god_mode: bool = False) -> int:
+    """Insert manager and return id. god_mode=True when seed 123 (bypass prestige for jobs)."""
     cur = conn.execute(
         """
-        INSERT INTO managers (name, scouting, developing_potential, unlocking_potential, convincing_players, in_game_management, prestige, unspent_skill_points)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO managers (name, god_mode, scouting, developing_potential, unlocking_potential, convincing_players, in_game_management, prestige, unspent_skill_points)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             manager.name,
+            1 if god_mode else 0,
             manager.scouting,
             manager.developing_potential,
             manager.unlocking_potential,
             manager.convincing_players,
             manager.in_game_management,
-            getattr(manager, "prestige", 50),
+            getattr(manager, "prestige", 5),
             getattr(manager, "unspent_skill_points", 0),
         ),
     )
@@ -61,8 +62,8 @@ def get_current_manager(conn: sqlite3.Connection | None = None) -> Manager | Non
         close = True
     try:
         row = conn.execute(
-            """SELECT id, name, scouting, developing_potential, unlocking_potential, convincing_players, in_game_management,
-                      COALESCE(prestige, 50) AS prestige, COALESCE(unspent_skill_points, 0) AS unspent_skill_points
+            """SELECT id, name, COALESCE(god_mode, 0) AS god_mode, scouting, developing_potential, unlocking_potential, convincing_players, in_game_management,
+                      COALESCE(prestige, 5) AS prestige, COALESCE(unspent_skill_points, 0) AS unspent_skill_points
                FROM managers ORDER BY id DESC LIMIT 1"""
         ).fetchone()
         if row is None:
@@ -70,6 +71,7 @@ def get_current_manager(conn: sqlite3.Connection | None = None) -> Manager | Non
         return Manager(
             id=row["id"],
             name=row["name"],
+            god_mode=bool(row.get("god_mode", 0)),
             scouting=row["scouting"],
             developing_potential=row["developing_potential"],
             unlocking_potential=row["unlocking_potential"],
@@ -81,6 +83,19 @@ def get_current_manager(conn: sqlite3.Connection | None = None) -> Manager | Non
     finally:
         if close:
             conn.close()
+
+
+def get_manager_season_history(
+    conn: sqlite3.Connection,
+    manager_id: int,
+) -> list[dict[str, Any]]:
+    """Return past seasons for a manager: season, team_name, wins, losses, expected_place, actual_place, prestige_after."""
+    rows = conn.execute(
+        """SELECT season, team_name, wins, losses, expected_place, actual_place, prestige_after
+           FROM manager_season_history WHERE manager_id = ? ORDER BY season DESC""",
+        (manager_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def insert_division(conn: sqlite3.Connection, name: str, level: str) -> int:
@@ -928,16 +943,15 @@ def get_team_record(
 # ---------------------------------------------------------------------------
 
 # Offseason step order (after regular season ends)
+# recruiting appears only for college; draft only for pro; both skipped for HS
 OFFSEASON_STEPS = (
-    "season_summary",   # 0) End-of-season report (expected vs actual place, stats)
-    "team_change",      # 1) User can change teams
-    "skill_points",     # 2) Spend earned skill points on GM attributes
-    "freshmen",         # 3) New HS freshmen class
-    "recruiting",       # 4) HS seniors -> college (best recruited, rest retire)
-    "draft",            # 5) College seniors -> NFL (best drafted, rest retire)
-    "training_camp",    # 6) HS training camps (user sets focus; run dev)
-    "development",      # 7) Offseason development for all (higher rate)
-    "complete",         # 8) Advance class years, new schedule, week 1
+    "season_summary",        # 0) End-of-season report
+    "team_change",           # 1) User can change teams
+    "skill_points",          # 2) Spend earned skill points
+    "recruiting",            # 3) College only: offer recruits (player signs with best offer by interest)
+    "draft",                 # 4) Pro only: NFL draft with "Sim Until Your Pick" and user pick
+    "offseason_simulations", # 5) Run freshmen, recruiting (if not done), draft (if not done), training camp, development
+    "complete",              # 6) Start new season
 )
 
 
@@ -1025,12 +1039,8 @@ def set_offseason_step(conn: sqlite3.Connection, step: str | None) -> None:
     conn.commit()
 
 
-def advance_offseason_step(conn: sqlite3.Connection) -> str | None:
-    """Move to next offseason step. Returns new step or None if no next step."""
-    state = get_season_state(conn)
-    step = state.get("offseason_step")
-    if not step:
-        return None
+def get_next_offseason_step(step: str, level: str) -> str | None:
+    """Return the next offseason step given current step and manager's team level. Skips recruiting if not college, draft if not pro."""
     try:
         idx = OFFSEASON_STEPS.index(step)
     except ValueError:
@@ -1038,6 +1048,29 @@ def advance_offseason_step(conn: sqlite3.Connection) -> str | None:
     if idx + 1 >= len(OFFSEASON_STEPS):
         return None
     next_step = OFFSEASON_STEPS[idx + 1]
+    if next_step == "recruiting" and level != "college":
+        return get_next_offseason_step(next_step, level)  # skip to draft or offseason_simulations
+    if next_step == "draft" and level != "professional":
+        return get_next_offseason_step(next_step, level)  # skip to offseason_simulations
+    return next_step
+
+
+def advance_offseason_step(conn: sqlite3.Connection, level: str | None = None) -> str | None:
+    """Move to next offseason step. If level is provided, skips recruiting (non-college) and draft (non-pro). Returns new step or None."""
+    state = get_season_state(conn)
+    step = state.get("offseason_step")
+    if not step:
+        return None
+    if level is not None:
+        next_step = get_next_offseason_step(step, level)
+    else:
+        try:
+            idx = OFFSEASON_STEPS.index(step)
+            next_step = OFFSEASON_STEPS[idx + 1] if idx + 1 < len(OFFSEASON_STEPS) else None
+        except ValueError:
+            next_step = None
+    if next_step is None:
+        return None
     set_offseason_step(conn, next_step)
     return next_step
 
@@ -1136,14 +1169,25 @@ def update_manager_prestige_after_season(
     expected_place: int,
     actual_place: int,
     num_teams: int,
+    drift: float = 0.3,
 ) -> None:
-    """Update manager prestige based on performance vs expectations. Clamped 0-99."""
+    """
+    Update manager prestige using the same calculation as team prestige: drift current
+    prestige toward a target based on where they finished (actual place).
+    Finish 1 -> target 99, last -> target 0, linear in between.
+    new_prestige = current * (1 - drift) + target * drift. Clamped 0-99.
+    """
     row = conn.execute("SELECT prestige FROM managers WHERE id = ?", (manager_id,)).fetchone()
     if not row:
         return
     current = row["prestige"]
-    delta = (expected_place - actual_place) * 2  # beat expectation -> +prestige
-    new_prestige = max(0, min(99, current + delta))
+    target = (
+        round(99 * (num_teams - actual_place + 1) / num_teams)
+        if num_teams
+        else 50
+    )
+    new_val = current * (1 - drift) + target * drift
+    new_prestige = max(0, min(99, round(new_val)))
     conn.execute("UPDATE managers SET prestige = ? WHERE id = ?", (new_prestige, manager_id))
     conn.commit()
 
@@ -1205,6 +1249,25 @@ def run_season_rewards(
         summary["actual_place"],
         summary["num_teams"],
     )
+    # Record this season in manager history for the player page
+    row = conn.execute("SELECT prestige FROM managers WHERE id = ?", (manager_id,)).fetchone()
+    prestige_after = row["prestige"] if row else 0
+    conn.execute(
+        """INSERT INTO manager_season_history (manager_id, season, team_id, team_name, wins, losses, expected_place, actual_place, prestige_after)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            manager_id,
+            season,
+            team_id,
+            summary.get("team_name", ""),
+            summary.get("wins", 0),
+            summary.get("losses", 0),
+            summary["expected_place"],
+            summary["actual_place"],
+            prestige_after,
+        ),
+    )
+    conn.commit()
     # Drift all divisions' team prestige toward this season's finish
     div_rows = conn.execute("SELECT id FROM divisions ORDER BY id").fetchall()
     for d in div_rows:
@@ -1288,6 +1351,85 @@ def get_team_record_for_season(
 ) -> dict[str, int]:
     """Return wins, losses, ties for a team in a given season (for draft order)."""
     return get_team_record(team_id, season=season, conn=conn)
+
+
+# ---------- Recruiting offers (college user offers for this offseason) ----------
+def get_recruiting_offers(conn: sqlite3.Connection, season: int, team_id: int) -> list[int]:
+    """Return list of player_ids that this team has offered (for this season)."""
+    rows = conn.execute(
+        "SELECT player_id FROM recruiting_offers WHERE season = ? AND team_id = ?",
+        (season, team_id),
+    ).fetchall()
+    return [r["player_id"] for r in rows]
+
+
+def set_recruiting_offers(
+    conn: sqlite3.Connection, season: int, team_id: int, player_ids: list[int]
+) -> None:
+    """Replace recruiting offers for this team/season with the given player_ids (max RECRUITS_PER_COLLEGE)."""
+    from simulation.offseason import RECRUITS_PER_COLLEGE
+    conn.execute("DELETE FROM recruiting_offers WHERE season = ? AND team_id = ?", (season, team_id))
+    for pid in player_ids[:RECRUITS_PER_COLLEGE]:
+        conn.execute(
+            "INSERT INTO recruiting_offers (season, team_id, player_id) VALUES (?, ?, ?)",
+            (season, team_id, pid),
+        )
+    conn.commit()
+
+
+# ---------- Draft state (pro draft: order and picks made) ----------
+def get_draft_order(conn: sqlite3.Connection, season: int) -> list[int]:
+    """Return list of team_ids in draft order (worst record first: fewest wins, then most losses)."""
+    pro_teams = get_teams_in_division_order(conn, "professional")
+    records = []
+    for t in pro_teams:
+        rec = get_team_record(team_id=t["id"], season=season, conn=conn)
+        records.append((t["id"], rec.get("wins", 0), rec.get("losses", 0)))
+    records.sort(key=lambda x: (x[1], -x[2]))  # fewest wins first, then most losses
+    return [r[0] for r in records]
+
+
+def get_draft_picks_made(conn: sqlite3.Connection, season: int) -> list[dict[str, Any]]:
+    """Return list of {pick_number, team_id, player_id} for this season's draft."""
+    rows = conn.execute(
+        "SELECT pick_number, team_id, player_id FROM draft_picks WHERE season = ? ORDER BY pick_number",
+        (season,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_current_draft_pick(conn: sqlite3.Connection, season: int) -> tuple[int, int] | None:
+    """Return (pick_number, team_id_on_clock) for the next pick, or None if draft is complete."""
+    order = get_draft_order(conn, season)
+    picks = get_draft_picks_made(conn, season)
+    current = len(picks)
+    if current >= len(order):
+        return None
+    return (current, order[current])
+
+
+def record_draft_pick(
+    conn: sqlite3.Connection, season: int, pick_number: int, team_id: int, player_id: int
+) -> None:
+    """Record a draft pick and transfer player to team."""
+    conn.execute(
+        "INSERT INTO draft_picks (season, pick_number, team_id, player_id) VALUES (?, ?, ?, ?)",
+        (season, pick_number, team_id, player_id),
+    )
+    transfer_player_to_team(conn, player_id, team_id, commit=False)
+    conn.commit()
+
+
+def get_eligible_draft_players(conn: sqlite3.Connection, season: int) -> list[dict[str, Any]]:
+    """Return college seniors not yet drafted this season (for draft board)."""
+    picked_ids = {
+        r["player_id"]
+        for r in conn.execute(
+            "SELECT player_id FROM draft_picks WHERE season = ?", (season,)
+        ).fetchall()
+    }
+    seniors = get_players_at_level_with_class(conn, "college", 4)
+    return [p for p in seniors if p["id"] not in picked_ids]
 
 
 def get_players_at_level_with_class(
@@ -1754,15 +1896,16 @@ def get_division_team_stat_leaders(
     season: int,
     conn: sqlite3.Connection,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Return top-5 team-level stat leaders per category (total_yards, rush_yards, pass_yards, fewest_turnovers).
-    Each entry: {team_id, team_name, value}. Same shape as division stat leaders for consistent UI."""
+    """Return top-5 team-level stat leaders per category: total_yards, rush_yards, pass_yards,
+    turnover_differential, sacks_total, yards_allowed. Each entry: {team_id, team_name, value}."""
     teams = conn.execute(
         "SELECT id, name FROM teams WHERE division_id = ? ORDER BY name",
         (division_id,),
     ).fetchall()
 
     result: dict[str, list[dict[str, Any]]] = {}
-    for tid, tname in [(t["id"], t["name"]) for t in teams]:
+    for t in teams:
+        tid, tname = t["id"], t["name"]
         games = conn.execute(
             """
             SELECT home_team_id, away_team_id,
@@ -1773,24 +1916,39 @@ def get_division_team_stat_leaders(
             """,
             (season, tid, tid),
         ).fetchall()
-        total_yards = rush_yards = pass_yards = turnovers = 0
+        total_yards = rush_yards = pass_yards = turnover_diff = yards_allowed = 0
         for g in games:
             if g["home_team_id"] == tid:
                 total_yards += g["home_total_yards"] or 0
                 rush_yards += g["home_rush_yards"] or 0
                 pass_yards += g["home_pass_yards"] or 0
-                turnovers += g["home_turnovers"] or 0
+                turnover_diff += (g["away_turnovers"] or 0) - (g["home_turnovers"] or 0)
+                yards_allowed += g["away_total_yards"] or 0
             else:
                 total_yards += g["away_total_yards"] or 0
                 rush_yards += g["away_rush_yards"] or 0
                 pass_yards += g["away_pass_yards"] or 0
-                turnovers += g["away_turnovers"] or 0
+                turnover_diff += (g["home_turnovers"] or 0) - (g["away_turnovers"] or 0)
+                yards_allowed += g["home_total_yards"] or 0
+
+        sacks_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(pgs.sacks), 0) AS total_sacks
+            FROM player_game_stats pgs
+            JOIN games g ON pgs.game_id = g.id
+            WHERE g.season = ? AND (g.home_team_id = ? OR g.away_team_id = ?) AND pgs.team_id = ?
+            """,
+            (season, tid, tid, tid),
+        ).fetchone()
+        sacks_total = int(sacks_row["total_sacks"]) if sacks_row else 0
 
         for key, val in [
             ("total_yards", total_yards),
             ("rush_yards", rush_yards),
             ("pass_yards", pass_yards),
-            ("turnovers", turnovers),
+            ("turnover_differential", turnover_diff),
+            ("sacks_total", sacks_total),
+            ("yards_allowed", yards_allowed),
         ]:
             result.setdefault(key, []).append({
                 "team_id": tid,
@@ -1798,13 +1956,13 @@ def get_division_team_stat_leaders(
                 "value": val,
             })
 
-    # Sort each category and take top 5; for turnovers we want fewest first
     out: dict[str, list[dict[str, Any]]] = {}
-    for key in ("total_yards", "rush_yards", "pass_yards"):
+    for key in ("total_yards", "rush_yards", "pass_yards", "turnover_differential", "sacks_total"):
         sorted_list = sorted(result.get(key, []), key=lambda x: -x["value"])[:5]
         out[key] = sorted_list
-    sorted_turnovers = sorted(result.get("turnovers", []), key=lambda x: x["value"])[:5]
-    out["fewest_turnovers"] = sorted_turnovers
+    # yards_allowed: lower is better
+    sorted_yards_allowed = sorted(result.get("yards_allowed", []), key=lambda x: x["value"])[:5]
+    out["yards_allowed"] = sorted_yards_allowed
     return out
 
 

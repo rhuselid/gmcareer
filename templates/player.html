@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your GM — {{ manager.name }} — GM Career Mode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="teams-page">
+  <main class="teams-container manage-team-container">
+    <h1>Your GM</h1>
+    <p class="teams-intro">Career profile: past seasons, current attributes, and prestige.</p>
+    <p class="nav-links">
+      <a href="{{ url_for('manage_team') }}" class="next-link">Team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
+    </p>
+
+    <div class="player-profile-card season-card">
+      <h2 class="season-card-title">{{ manager.name or '—' }}</h2>
+      <p class="player-profile-meta">Current season: {{ current_season }}</p>
+      <dl class="player-profile-stats">
+        <dt>Prestige</dt>
+        <dd class="player-prestige-value">{{ manager.prestige }}</dd>
+        <dt>Unspent skill points</dt>
+        <dd>{{ manager.unspent_skill_points }}</dd>
+      </dl>
+      <h3 class="player-attributes-heading">Current attributes</h3>
+      <dl class="skill-summary player-attributes-list">
+        {% for key, label in manager_skills.items() %}
+        <dt>{{ label }}</dt>
+        <dd>{{ manager[key] }}</dd>
+        {% endfor %}
+      </dl>
+    </div>
+
+    <div class="player-history-section season-card">
+      <h2 class="season-card-title">Past seasons</h2>
+      {% if past_seasons %}
+      <table class="standings-table player-history-table">
+        <thead>
+          <tr>
+            <th>Season</th>
+            <th>Team</th>
+            <th>W–L</th>
+            <th>Expected</th>
+            <th>Actual</th>
+            <th>Prestige after</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in past_seasons %}
+          <tr>
+            <td>{{ s.season }}</td>
+            <td>{{ s.team_name }}</td>
+            <td>{{ s.wins }}–{{ s.losses }}</td>
+            <td>{{ s.expected_place }}</td>
+            <td>{{ s.actual_place }}</td>
+            <td>{{ s.prestige_after }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="offseason-desc">No completed seasons yet. Finish a season to see your career history here.</p>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>

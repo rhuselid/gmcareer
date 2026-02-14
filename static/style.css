@@ -1023,6 +1023,13 @@ body.teams-page {
   border-radius: 10px;
 }
 
+.season-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .season-week-info {
   display: flex;
   align-items: baseline;
@@ -1084,6 +1091,11 @@ body.teams-page {
   transform: scale(0.97);
 }
 
+.sim-btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.875rem;
+}
+
 .sim-btn--disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1123,6 +1135,46 @@ body.teams-page {
   font-size: 0.85rem;
   color: #809080;
   cursor: help;
+}
+
+/* Progress bar for long-running sim buttons — full width of button */
+.sim-form-with-progress {
+  display: inline-block;
+  width: auto;
+}
+
+.sim-progress-wrap {
+  display: none;
+  width: 100%;
+  height: 8px;
+  margin-top: 0.5rem;
+  background: rgba(20, 35, 20, 0.9);
+  border: 1px solid rgba(80, 120, 80, 0.5);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sim-progress-wrap.is-visible {
+  display: block;
+}
+
+.sim-progress-bar {
+  height: 100%;
+  width: 0%;
+  max-width: 100%;
+  background: linear-gradient(90deg, #5a9a5a 0%, #7fcf7f 100%);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+}
+
+.sim-progress-bar--indeterminate {
+  width: 40% !important;
+  animation: sim-progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes sim-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }
 
 /* Two-column layout for standings + schedule */
@@ -2216,14 +2268,18 @@ body.teams-page {
 }
 
 .roster-table a.player-link,
-.position-card a.player-link {
+.position-card a.player-link,
+.practice-development-table a.player-link,
+.offseason-players-table a.player-link {
   color: inherit;
   text-decoration: none;
   border-bottom: 1px dashed rgba(127, 207, 127, 0.3);
 }
 
 .roster-table a.player-link:hover,
-.position-card a.player-link:hover {
+.position-card a.player-link:hover,
+.practice-development-table a.player-link:hover,
+.offseason-players-table a.player-link:hover {
   color: #7fcf7f;
   border-bottom-color: #7fcf7f;
 }
@@ -2707,4 +2763,69 @@ body.teams-page {
 
 .offseason-players-table tbody tr:hover {
   background: rgba(60, 90, 60, 0.2);
+}
+
+/* Offseason results (combined view) */
+.offseason-results {
+  margin-top: 2rem;
+  padding: 1.25rem;
+  background: rgba(30, 50, 30, 0.95);
+  border: 1px solid rgba(80, 120, 80, 0.5);
+  border-radius: 12px;
+}
+
+.offseason-result-block {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(80, 120, 80, 0.3);
+}
+
+.offseason-result-block:first-of-type {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+.offseason-result-sub {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.95rem;
+  color: #9fcf9f;
+  font-weight: 600;
+}
+
+.offseason-retired-list {
+  margin: 0.25rem 0 1rem;
+  padding-left: 1.5rem;
+  font-size: 0.9rem;
+  color: #b8d4b8;
+}
+
+/* Badge for newly generated freshman */
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.45em;
+  font-size: 0.7em;
+  font-weight: 600;
+  border-radius: 4px;
+  margin-left: 0.35em;
+  vertical-align: middle;
+}
+
+.badge-freshman {
+  background: rgba(100, 180, 100, 0.4);
+  color: #c8e6c8;
+  border: 1px solid rgba(120, 200, 120, 0.5);
+}
+
+/* Roster: highlight freshman (class year 1) as new */
+.pc-class--freshman,
+.roster-class-freshman {
+  font-weight: 600;
+  color: #a8e0a8;
+}
+
+.pc-class--freshman .badge-freshman,
+.roster-class-freshman .badge-freshman {
+  font-size: 0.65em;
+  padding: 0.1em 0.3em;
 }

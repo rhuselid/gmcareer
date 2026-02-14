@@ -27,12 +27,13 @@ class Manager:
 
     id: int | None = None
     name: str = ""
+    god_mode: bool = False  # seed 123: bypass prestige for job selection
     scouting: int = 0
     developing_potential: int = 0
     unlocking_potential: int = 0
     convincing_players: int = 0
     in_game_management: int = 0
-    prestige: int = 50  # 0-99, updated by performance vs expectations
+    prestige: int = 5  # 0-99, updated by performance vs expectations; start at 5 for job options
     unspent_skill_points: int = 0  # earned in offseason, spent on GM attributes
 
     def __post_init__(self) -> None:
@@ -45,10 +46,15 @@ class Manager:
         if self.unspent_skill_points < 0:
             raise ValueError(f"unspent_skill_points must be >= 0, got {self.unspent_skill_points}")
 
+    @property
+    def is_god_mode(self) -> bool:
+        return bool(getattr(self, "god_mode", False))
+
     def to_dict(self) -> Dict:
         d: Dict = {"name": self.name}
         if self.id is not None:
             d["id"] = self.id
+        d["god_mode"] = self.is_god_mode
         d.update({
             "scouting": self.scouting,
             "developing_potential": self.developing_potential,
@@ -65,11 +71,12 @@ class Manager:
         return cls(
             id=data.get("id"),
             name=data.get("name", ""),
+            god_mode=bool(data.get("god_mode", 0)),
             scouting=data.get("scouting", 0),
             developing_potential=data.get("developing_potential", 0),
             unlocking_potential=data.get("unlocking_potential", 0),
             convincing_players=data.get("convincing_players", 0),
             in_game_management=data.get("in_game_management", 0),
-            prestige=data.get("prestige", 50),
+            prestige=data.get("prestige", 5),
             unspent_skill_points=data.get("unspent_skill_points", 0),
         )

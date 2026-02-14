@@ -11,7 +11,7 @@
     <h1>{{ team.name }}</h1>
     <p class="teams-intro">Season {{ season }} — {{ division_name }}</p>
     <p class="nav-links">
-      <a href="{{ url_for('team_selection') }}" class="next-link">Change team</a>
+      <a href="{{ url_for('player_page') }}" class="next-link">Player</a>
       <span class="nav-sep">|</span>
       <a href="{{ url_for('player_database') }}" class="next-link">Player Database</a>
     </p>
@@ -49,21 +49,28 @@
           <span class="season-record">Record: {{ user_record.w }}-{{ user_record.l }}</span>
         </div>
         {% if not season_complete %}
-        <form method="post" action="{{ url_for('sim_week') }}" class="sim-form" id="sim-week-form">
-          {% if depth_chart_valid is defined and not depth_chart_valid %}
-          <button type="submit" class="sim-btn sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Sim Week {{ week }}</button>
-          <span class="sim-btn-hint" title="{{ depth_chart_invalid_reason | default('') }}">You need a valid depth chart (every position filled) to sim.</span>
-          {% else %}
-          <button type="submit" class="sim-btn" id="sim-week-btn">Sim Week {{ week }}</button>
-          {% endif %}
-        </form>
-        <form method="post" action="{{ url_for('sim_season') }}" class="sim-form sim-form-inline">
-          {% if depth_chart_valid is defined and not depth_chart_valid %}
-          <button type="submit" class="sim-btn sim-btn--secondary sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Simulate Season</button>
-          {% else %}
-          <button type="submit" class="sim-btn sim-btn--secondary" id="sim-season-btn">Simulate Season</button>
-          {% endif %}
-        </form>
+        <div class="season-header-actions">
+          <form method="post" action="{{ url_for('sim_week') }}" class="sim-form" id="sim-week-form">
+            {% if depth_chart_valid is defined and not depth_chart_valid %}
+            <button type="submit" class="sim-btn sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Sim Week {{ week }}</button>
+            <span class="sim-btn-hint" title="{{ depth_chart_invalid_reason | default('') }}">You need a valid depth chart (every position filled) to sim.</span>
+            {% else %}
+            <button type="submit" class="sim-btn" id="sim-week-btn">Sim Week {{ week }}</button>
+            {% endif %}
+          </form>
+          <div class="sim-form-with-progress">
+            <form method="post" action="{{ url_for('sim_season') }}" class="sim-form sim-form-inline" id="sim-season-form">
+              {% if depth_chart_valid is defined and not depth_chart_valid %}
+              <button type="submit" class="sim-btn sim-btn--secondary sim-btn--disabled" disabled title="{{ depth_chart_invalid_reason | default('Set a valid depth chart to sim.') }}">Simulate Season</button>
+              {% else %}
+              <button type="submit" class="sim-btn sim-btn--secondary" id="sim-season-btn">Simulate Season</button>
+              {% endif %}
+            </form>
+            <div class="sim-progress-wrap" id="sim-season-progress" aria-hidden="true">
+              <div class="sim-progress-bar" id="sim-season-progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Simulating season"></div>
+            </div>
+          </div>
+        </div>
         {% endif %}
       </div>
 
@@ -141,7 +148,9 @@
             ("total_yards", "Total yards", "yds"),
             ("rush_yards", "Rush yards", "yds"),
             ("pass_yards", "Pass yards", "yds"),
-            ("fewest_turnovers", "Fewest turnovers", "TO"),
+            ("turnover_differential", "Turnover differential", ""),
+            ("sacks_total", "Sack total", ""),
+            ("yards_allowed", "Yards allowed", "yds"),
           ] %}
           {% for key, label, unit in team_leader_categories %}
           {% if division_team_stat_leaders.get(key) %}
@@ -219,7 +228,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
                   <span class="pc-ovr">OVR {{ p.overall }}</span>
                   <span class="pc-pot">Pot {{ p.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                  <span class="pc-class{% if p.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(p.class_year, p.class_year) }}{% if p.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
                 {% endfor %}
               {% elif slot_index <= pos_players|length %}
@@ -228,7 +237,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
                   <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
                   <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                  <span class="pc-class{% if _slot_player.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}{% if _slot_player.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
               {% endif %}
             </ul>
@@ -262,7 +271,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
                   <span class="pc-ovr">OVR {{ p.overall }}</span>
                   <span class="pc-pot">Pot {{ p.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                  <span class="pc-class{% if p.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(p.class_year, p.class_year) }}{% if p.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
                 {% endfor %}
               {% elif slot_index <= pos_players|length %}
@@ -271,7 +280,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
                   <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
                   <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                  <span class="pc-class{% if _slot_player.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}{% if _slot_player.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
               {% endif %}
             </ul>
@@ -304,7 +313,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ p.id }}">{{ p.name }}</a></span>
                   <span class="pc-ovr">OVR {{ p.overall }}</span>
                   <span class="pc-pot">Pot {{ p.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(p.class_year, p.class_year) }}</span>
+                  <span class="pc-class{% if p.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(p.class_year, p.class_year) }}{% if p.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
                 {% endfor %}
               {% elif slot_index <= pos_players|length %}
@@ -313,7 +322,7 @@
                   <span class="pc-name"><a href="#" class="player-link" data-player-id="{{ _slot_player.id }}">{{ _slot_player.name }}</a></span>
                   <span class="pc-ovr">OVR {{ _slot_player.overall }}</span>
                   <span class="pc-pot">Pot {{ _slot_player.potential }}</span>
-                  <span class="pc-class">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}</span>
+                  <span class="pc-class{% if _slot_player.class_year == 1 %} pc-class--freshman{% endif %}">{{ class_labels.get(_slot_player.class_year, _slot_player.class_year) }}{% if _slot_player.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</span>
                 </li>
               {% endif %}
             </ul>
@@ -432,7 +441,7 @@
               <td class="roster-pot-cell" data-potential="{{ p.potential }}">{{ p.potential }}</td>
               <td>{% if p.id in starter_ids %}True{% else %}False{% endif %}</td>
               <td class="roster-dev-cell">{% if dev_total > 0 %}+{{ dev_total }}{% else %}—{% endif %}</td>
-              <td>{{ class_labels.get(p.class_year, p.class_year) }}</td>
+              <td class="{% if p.class_year == 1 %}roster-class-freshman{% endif %}">{{ class_labels.get(p.class_year, p.class_year) }}{% if p.class_year == 1 %} <span class="badge badge-freshman" title="New freshman">New</span>{% endif %}</td>
               <td>{{ p.age }}</td>
               <td>{{ p.height }}</td>
               <td>{{ p.weight }}</td>
@@ -540,6 +549,74 @@
           simBtn.disabled = true;
           simBtn.classList.add('sim-btn--loading');
           simBtn.textContent = 'Simulating…';
+        });
+      }
+
+      /* ====== Sim Season: indeterminate progress bar, redirect on completion ====== */
+      var simSeasonForm = document.getElementById('sim-season-form');
+      var simSeasonBtn = document.getElementById('sim-season-btn');
+      var simSeasonProgressWrap = document.getElementById('sim-season-progress');
+      var simSeasonProgressBar = document.getElementById('sim-season-progress-bar');
+      if (simSeasonForm && simSeasonBtn && simSeasonProgressWrap && simSeasonProgressBar) {
+        simSeasonForm.addEventListener('submit', function (e) {
+          e.preventDefault();
+          if (simSeasonForm.dataset.submitting === 'true') return;
+          simSeasonForm.dataset.submitting = 'true';
+          simSeasonBtn.disabled = true;
+          simSeasonBtn.classList.add('sim-btn--loading');
+          simSeasonBtn.textContent = 'Simulating season…';
+          simSeasonProgressWrap.classList.add('is-visible');
+          simSeasonProgressWrap.setAttribute('aria-hidden', 'false');
+          simSeasonProgressBar.classList.add('sim-progress-bar--indeterminate');
+          simSeasonProgressBar.style.width = '';
+          simSeasonProgressBar.setAttribute('aria-valuenow', '0');
+          var formData = new FormData(simSeasonForm);
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', simSeasonForm.action);
+          xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          xhr.onload = function () {
+            simSeasonProgressBar.classList.remove('sim-progress-bar--indeterminate');
+            simSeasonProgressBar.style.width = '100%';
+            simSeasonProgressBar.setAttribute('aria-valuenow', '100');
+            var go = function (url) {
+              if (url) window.location.href = url;
+              else window.location.reload();
+            };
+            if (xhr.status === 302) {
+              var loc = xhr.getResponseHeader('Location');
+              if (loc) {
+                loc = loc.indexOf('http') === 0 ? loc : (window.location.origin + (loc.charAt(0) === '/' ? loc : '/' + loc));
+                go(loc);
+              } else {
+                go(null);
+              }
+              return;
+            }
+            if (xhr.status === 200 && xhr.responseURL && xhr.responseURL !== simSeasonForm.action) {
+              go(xhr.responseURL);
+              return;
+            }
+            if (xhr.status === 200) {
+              go(null);
+              return;
+            }
+            simSeasonForm.dataset.submitting = 'false';
+            simSeasonBtn.disabled = false;
+            simSeasonBtn.classList.remove('sim-btn--loading');
+            simSeasonBtn.textContent = 'Simulate Season';
+            simSeasonProgressWrap.classList.remove('is-visible');
+            go(simSeasonForm.action);
+          };
+          xhr.onerror = function () {
+            simSeasonProgressBar.classList.remove('sim-progress-bar--indeterminate');
+            simSeasonForm.dataset.submitting = 'false';
+            simSeasonBtn.disabled = false;
+            simSeasonBtn.classList.remove('sim-btn--loading');
+            simSeasonBtn.textContent = 'Simulate Season';
+            simSeasonProgressWrap.classList.remove('is-visible');
+            window.location.reload();
+          };
+          xhr.send(formData);
         });
       }
 
